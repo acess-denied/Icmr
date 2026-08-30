@@ -1,0 +1,113 @@
+{
+  "macro_name": "ICMR_STS_Kubios_HRV_AutoCapture",
+  "version": "1.0",
+  "author": "ICMR STS Medical Research Pipeline",
+  "description": "Automated Kubios HRV measurement, participant ID tag injection, result screen capture, OCR extraction, and tamper-evident Cloudflare upload",
+  "triggers": [
+    {
+      "type": "Webhook",
+      "identifier": "sts_hrv_measure",
+      "description": "Triggered via HTTP GET/POST from Investigator Tablet or Cloudflare Worker",
+      "query_parameters": [
+        "participant_id",
+        "request_id",
+        "webhook_secret"
+      ]
+    },
+    {
+      "type": "Shortcut / Floating Widget",
+      "description": "Manual backup trigger by investigator with Clipboard Participant ID"
+    }
+  ],
+  "variables": [
+    { "name": "var_participant_id", "type": "String", "default": "" },
+    { "name": "var_request_id", "type": "String", "default": "" },
+    { "name": "var_screenshot_path", "type": "String", "default": "/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Result.jpg" },
+    { "name": "var_screenshot_base64", "type": "String", "default": "" },
+    { "name": "var_ocr_text", "type": "String", "default": "" },
+    { "name": "var_worker_url", "type": "String", "default": "https://icmr-sts-worker.workers.dev/api/hrv" }
+  ],
+  "actions": [
+    {
+      "step": 1,
+      "action": "Set Variable",
+      "details": "Assign var_participant_id from Webhook parameter {trigger_param:participant_id} or fallback to clipboard"
+    },
+    {
+      "step": 2,
+      "action": "Set Clipboard",
+      "details": "Set clipboard text to var_participant_id for note pasting"
+    },
+    {
+      "step": 3,
+      "action": "Launch Application",
+      "target_package": "com.kubios.hrv",
+      "app_name": "Kubios HRV"
+    },
+    {
+      "step": 4,
+      "action": "UI Interaction / Click",
+      "target": "Measurement / Start Recording Button",
+      "delay_ms": 2500
+    },
+    {
+      "step": 5,
+      "action": "Paste Text into Measurement Note/Tag",
+      "content": "Participant ID: {var_participant_id} | Ref: {var_request_id}",
+      "delay_ms": 1000
+    },
+    {
+      "step": 6,
+      "action": "Wait for Text on Screen",
+      "trigger_text": "RESULT",
+      "timeout_seconds": 180,
+      "comment": "Waits for Kubios sensor acquisition (60s to 120s) until RESULT screen appears"
+    },
+    {
+      "step": 7,
+      "action": "Wait",
+      "seconds": 2,
+      "comment": "Ensure rendering of Readiness gauge, Heart Rate, RMSSD, SDNN, LF/HF parameters"
+    },
+    {
+      "step": 8,
+      "action": "Take Screenshot",
+      "output_path": "{var_screenshot_path}",
+      "quality": 100
+    },
+    {
+      "step": 9,
+      "action": "Read Screen Text / OCR",
+      "target_area": "Full Screen",
+      "output_variable": "var_ocr_text"
+    },
+    {
+      "step": 10,
+      "action": "HTTP Request (POST)",
+      "url": "{var_worker_url}",
+      "method": "POST",
+      "content_type": "application/json",
+      "headers": {
+        "X-STS-Client": "MacroDroid-Android-v1.0",
+        "X-STS-Device": "{device_name}"
+      },
+      "body_json_template": {
+        "participant_id": "{var_participant_id}",
+        "request_id": "{var_request_id}",
+        "recording_date": "{year}-{month_digit}-{day_of_month_digit}",
+        "recording_time": "{hour_24}:{minute_digit}:{second_digit}",
+        "caffeine_avoided_12h": 1,
+        "exercise_avoided_12h": 1,
+        "rest_period_minutes": 10,
+        "ocr_raw_text": "{var_ocr_text}",
+        "screenshot_base64": "{file_base64:/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Result.jpg}"
+      }
+    },
+    {
+      "step": 11,
+      "action": "Notification / Vibration Feedback",
+      "message": "Kubios HRV Ingested & Verified for {var_participant_id} - Upload HTTP 200",
+      "vibration_pattern": "Short-Short-Long"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "icmr-sts-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ENVIRONMENT": "production",
+    "MAX_TIMESTAMP_SKEW_SEC": "300"
+  },
+  "observability": {
+    "enabled": true
+  }
+}

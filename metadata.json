@@ -1,0 +1,6 @@
+{
+  "name": "ICMR STS Research Workflow",
+  "description": "Electronic data-capture and consent system for ICMR STS study transitioning Google Forms to Cloudflare and CRF PDF.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
