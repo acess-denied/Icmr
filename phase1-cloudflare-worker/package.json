@@ -1,0 +1,17 @@
+{
+  "name": "phase1-cloudflare-worker",
+  "version": "1.0.0",
+  "description": "ICMR STS 2026 Edge Worker Backend",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "tsx test-phase1.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^3.111.0"
+  }
+}

@@ -13,7 +13,8 @@ import {
   Sliders,
   ChevronRight,
   Sparkles,
-  Lock
+  Lock,
+  FileSpreadsheet
 } from 'lucide-react';
 
 import { ParticipantRecord, AuditEvent, KubiosHrvRecord } from './types';
@@ -24,9 +25,10 @@ import { KubiosHrvStudio } from './components/KubiosHrvStudio';
 import { PdfAppendixViewer } from './components/PdfAppendixViewer';
 import { MacroDroidManager } from './components/MacroDroidManager';
 import { PlaybookViewer } from './components/PlaybookViewer';
+import { GoogleIntegrationHub } from './components/GoogleIntegrationHub';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'signer' | 'hrv' | 'pdf' | 'macrodroid' | 'playbook'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'signer' | 'hrv' | 'pdf' | 'macrodroid' | 'playbook' | 'google_sync'>('dashboard');
 
   // Sample Research Participants
   const [participants, setParticipants] = useState<ParticipantRecord[]>([
@@ -175,6 +177,22 @@ export function App() {
     }
   ]);
 
+  const handleCreateParticipant = (newRecord: ParticipantRecord) => {
+    setParticipants(prev => [newRecord, ...prev]);
+    setSelectedParticipant(newRecord);
+
+    const newAudit: AuditEvent = {
+      event_id: generateEventId(),
+      timestamp: new Date().toISOString(),
+      event_type: 'MANUAL_FORM_SUBMISSION',
+      actor: 'INVESTIGATOR_DIRECT_BACKUP',
+      participant_id: newRecord.participant_id,
+      details: `Direct Case Record Form entry created (Asian-Indian BMI: ${newRecord.bmi}, rMEQ: ${newRecord.rmeq_total_score}). Queued for Google Sheets sync.`,
+      event_hash: Math.random().toString(36).substring(2, 14)
+    };
+    setAuditLogs(prev => [newAudit, ...prev]);
+  };
+
   const handleUpdateParticipant = (updated: ParticipantRecord) => {
     setParticipants(prev => prev.map(p => p.participant_id === updated.participant_id ? updated : p));
     setSelectedParticipant(updated);
@@ -185,7 +203,7 @@ export function App() {
       event_type: 'HRV_ATTACHED',
       actor: 'MACRODROID_AUTOMATION',
       participant_id: updated.participant_id,
-      details: `Attached Kubios screenshot and HRV parameters (RMSSD: ${updated.hrv_record?.rmssd} ms).`,
+      details: `Attached Kubios screenshot and HRV parameters (RMSSD: ${updated.hrv_record?.rmssd} ms, LF/HF: ${updated.hrv_record?.lf_hf_ratio}).`,
       event_hash: Math.random().toString(36).substring(2, 14)
     };
     setAuditLogs(prev => [newAudit, ...prev]);
@@ -270,12 +288,12 @@ export function App() {
               <div>
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-black text-slate-900">ICMR STS 2026</span>
-                  <span className="bg-blue-50 text-blue-800 text-[10px] font-extrabold px-2 py-0.5 rounded border border-blue-200">
-                    Phases 1–10 Active
+                  <span className="bg-emerald-50 text-emerald-800 text-[10px] font-extrabold px-2 py-0.5 rounded border border-emerald-200 flex items-center gap-1">
+                    <FileSpreadsheet className="w-3 h-3" /> Google Sheets Integrated
                   </span>
                 </div>
                 <div className="text-xs text-slate-500 truncate max-w-sm sm:max-w-md md:max-w-lg">
-                  Meal Timing, Chronotype, and Heart Rate Variability Pipeline
+                  Meal Timing, Chronotype, and Heart Rate Variability Research Portal
                 </div>
               </div>
             </div>
@@ -304,7 +322,7 @@ export function App() {
           </div>
 
           {/* Module Navigation Tabs */}
-          <div className="flex space-x-1 sm:space-x-3 overflow-x-auto no-scrollbar border-t border-slate-100 py-1.5 text-xs font-semibold">
+          <div className="flex space-x-1 sm:space-x-2 overflow-x-auto no-scrollbar border-t border-slate-100 py-1.5 text-xs font-semibold">
             <button
               onClick={() => setActiveTab('dashboard')}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
@@ -313,6 +331,16 @@ export function App() {
             >
               <Users className="w-3.5 h-3.5" />
               <span>Operations Dashboard</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('google_sync')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                activeTab === 'google_sync' ? 'bg-emerald-800 text-white shadow-sm' : 'text-emerald-800 bg-emerald-50 hover:bg-emerald-100'
+              }`}
+            >
+              <FileSpreadsheet className="w-3.5 h-3.5" />
+              <span>Google Forms & Sheets Hub</span>
             </button>
 
             <button
@@ -331,7 +359,7 @@ export function App() {
                 activeTab === 'hrv' ? 'bg-blue-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
               }`}
             >
-              <Activity className="w-3.5 h-3.5 text-emerald-300" />
+              <Activity className="w-3.5 h-3.5 text-emerald-500" />
               <span>Kubios HRV & MacroDroid</span>
             </button>
 
@@ -377,6 +405,13 @@ export function App() {
             auditLogs={auditLogs}
             onSelectParticipant={(p) => setSelectedParticipant(p)}
             onNavigateTab={(tab) => setActiveTab(tab)}
+            onParticipantCreated={handleCreateParticipant}
+          />
+        )}
+
+        {activeTab === 'google_sync' && (
+          <GoogleIntegrationHub
+            participants={participants}
           />
         )}
 
@@ -413,7 +448,7 @@ export function App() {
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
           <span>ICMR STS 2026 Research Ingestion Platform • Department of Physiology</span>
-          <span className="font-mono text-[11px] text-slate-400">Serverless Edge • D1 SQL • R2 Storage • MacroDroid OCR Bridge</span>
+          <span className="font-mono text-[11px] text-slate-400">Google Sheets Ingest • Serverless Edge • D1 SQL Backup • R2 Storage</span>
         </div>
       </footer>
 
