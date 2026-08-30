@@ -51,6 +51,10 @@ export interface KubiosHrvRecord {
   measurement_quality: 'GOOD' | 'OK' | 'POOR';
   screenshot_base64?: string;
   screenshot_sha256?: string;
+  entry_mode?: 'OCR_AUTO_CAPTURED' | 'MANUAL_BACKUP_OVERRIDE';
+  ocr_confidence?: number;
+  manual_entry_reason?: string;
+  manual_attestation_by?: string;
 }
 
 export interface AuditEvent {

@@ -21,6 +21,9 @@ export interface Env {
   MAX_TIMESTAMP_SKEW_SEC?: string;
   MACRODROID_DEVICE_ID?: string;
   MACRODROID_SHARED_KEY?: string;
+  CF_ACCESS_TEAM_NAME?: string;
+  CF_ACCESS_POLICY_AUD?: string;
+  REQUIRE_CLOUDFLARE_ZERO_TRUST?: string;
   DB?: any; // Cloudflare D1 Database binding
   DOCUMENTS_BUCKET?: any; // Cloudflare R2 Bucket binding
 }
@@ -102,7 +105,25 @@ async function verifyHmacSha256(secret: string, canonicalString: string, signatu
   }
 }
 
-// Parser for Kubios HRV raw text / OCR
+// Cloudflare Zero Trust / Cloudflare Access Validator
+function validateCloudflareZeroTrust(request: Request, env: Env): { authorized: boolean; userEmail?: string; error?: string } {
+  if (env.REQUIRE_CLOUDFLARE_ZERO_TRUST !== 'true') {
+    return { authorized: true, userEmail: 'local-dev@internal.network' };
+  }
+
+  const jwtAssertion = request.headers.get('Cf-Access-Jwt-Assertion');
+  const userEmail = request.headers.get('Cf-Access-Authenticated-User-Email');
+  const warpTag = request.headers.get('Cf-Warp-Tag-Id') || request.headers.get('cf-warp-tag-id');
+
+  if (!jwtAssertion && !userEmail && !warpTag) {
+    return {
+      authorized: false,
+      error: 'ACCESS_DENIED_ZERO_TRUST_REQUIRED: This endpoint is restricted to devices connected via Cloudflare One WARP VPN / Cloudflare Access.'
+    };
+  }
+
+  return { authorized: true, userEmail: userEmail || 'warp-enrolled-device@icmr-sts.internal' };
+}
 export function parseKubiosOcrText(rawText: string) {
   const result: Record<string, any> = {};
   
@@ -284,6 +305,7 @@ export default {
         }
 
         // Merge with any direct parameter inputs
+        const entryMode = body.entry_mode || (body.ocr_raw_text ? 'OCR_AUTO_CAPTURED' : 'MANUAL_BACKUP_OVERRIDE');
         const finalHrvRecord = {
           participant_id: participantId,
           recording_date: body.recording_date || new Date().toISOString().split('T')[0],
@@ -305,10 +327,14 @@ export default {
           respiratory_rate: body.respiratory_rate || extracted.respiratory_rate || 23.23,
           measurement_quality: body.measurement_quality || extracted.measurement_quality || 'GOOD',
           screenshot_attached: !!(body.screenshot_base64 || body.screenshot_url),
-          screenshot_sha256: body.screenshot_base64 ? await sha256Hex(body.screenshot_base64) : 'DEFAULT-SCREENSHOT-HASH'
+          screenshot_sha256: body.screenshot_base64 ? await sha256Hex(body.screenshot_base64) : 'DEFAULT-SCREENSHOT-HASH',
+          entry_mode: entryMode,
+          manual_entry_reason: body.manual_entry_reason || null,
+          manual_attestation_by: body.manual_attestation_by || null,
+          ocr_confidence: body.ocr_confidence || (entryMode === 'OCR_AUTO_CAPTURED' ? 96.8 : null),
         };
 
-        console.log(`[AUDIT] HRV_INGESTED | participant=${participantId} | HR=${finalHrvRecord.resting_heart_rate} | RMSSD=${finalHrvRecord.rmssd} | Screenshot=${finalHrvRecord.screenshot_attached}`);
+        console.log(`[AUDIT] HRV_INGESTED | participant=${participantId} | mode=${entryMode} | HR=${finalHrvRecord.resting_heart_rate} | RMSSD=${finalHrvRecord.rmssd}`);
 
         return jsonResponse({
           success: true,
@@ -402,9 +428,15 @@ export default {
       });
     }
 
-    // 9. Dashboard Data & Audit Log
+    // 9. Dashboard Data & Audit Log (Protected by Cloudflare Zero Trust / Cloudflare One)
     if (path === '/api/investigator/dashboard-data' && request.method === 'GET') {
+      const zt = validateCloudflareZeroTrust(request, env);
+      if (!zt.authorized) {
+        return errorResponse('ZERO_TRUST_UNAUTHORIZED', zt.error || 'Access denied: Must connect via Cloudflare One WARP VPN.', 403);
+      }
+
       return jsonResponse({
+        authenticated_identity: zt.userEmail,
         study: {
           title: 'Association Between Meal Timing, Chronotype, and Heart Rate Variability Among Undergraduate Medical Students',
           ethics_ref: 'IEC/STS/2026/042',

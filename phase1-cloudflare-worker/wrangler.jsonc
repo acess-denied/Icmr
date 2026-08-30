@@ -6,8 +6,23 @@
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
     "ENVIRONMENT": "production",
-    "MAX_TIMESTAMP_SKEW_SEC": "300"
+    "MAX_TIMESTAMP_SKEW_SEC": "300",
+    "REQUIRE_CLOUDFLARE_ZERO_TRUST": "true",
+    "CF_ACCESS_TEAM_NAME": "icmr-sts-research"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "icmr_sts_research_db",
+      "database_id": "YOUR_D1_DATABASE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "DOCUMENTS_BUCKET",
+      "bucket_name": "icmr-sts-documents"
+    }
+  ],
   "observability": {
     "enabled": true
   }
