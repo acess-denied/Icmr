@@ -19,16 +19,19 @@ import {
   Share2, 
   Sparkles,
   SlidersHorizontal,
-  ChevronDown
+  ChevronDown,
+  MessageSquare,
+  FileText
 } from 'lucide-react';
 import { ParticipantRecord, AuditEvent } from '../types';
 import { ManualParticipantFormModal } from './ManualParticipantFormModal';
+import { generateClinicalInterpretation } from '../data/interpretationRules';
 
 interface DashboardProps {
   participants: ParticipantRecord[];
   auditLogs: AuditEvent[];
   onSelectParticipant: (participant: ParticipantRecord) => void;
-  onNavigateTab: (tab: 'dashboard' | 'signer' | 'hrv' | 'pdf' | 'macrodroid' | 'playbook' | 'google_sync') => void;
+  onNavigateTab: (tab: 'dashboard' | 'signer' | 'hrv' | 'pdf' | 'report' | 'signatures' | 'macrodroid' | 'playbook' | 'google_sync') => void;
   onParticipantCreated: (participant: ParticipantRecord) => void;
 }
 
@@ -42,6 +45,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [chronotypeFilter, setChronotypeFilter] = useState<string>('ALL');
+  const [investigatorFilter, setInvestigatorFilter] = useState<string>('ALL');
   const [sortBy, setSortBy] = useState<'ID' | 'DATE' | 'BMI' | 'RMEQ' | 'HR' | 'LF_HF'>('DATE');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   const [isManualFormOpen, setIsManualFormOpen] = useState(false);
@@ -55,10 +59,12 @@ export const Dashboard: React.FC<DashboardProps> = ({
           p.participant_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
           p.submission_id.toLowerCase().includes(searchTerm.toLowerCase()) ||
           p.chronotype_category.toLowerCase().includes(searchTerm.toLowerCase()) ||
-          p.year_of_study.toLowerCase().includes(searchTerm.toLowerCase());
+          p.year_of_study.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (p.investigator_name && p.investigator_name.toLowerCase().includes(searchTerm.toLowerCase()));
         const matchesStatus = statusFilter === 'ALL' || p.status === statusFilter;
         const matchesChrono = chronotypeFilter === 'ALL' || p.chronotype_category === chronotypeFilter;
-        return matchesSearch && matchesStatus && matchesChrono;
+        const matchesInvestigator = investigatorFilter === 'ALL' || (p.investigator_name || 'Harsh Narware') === investigatorFilter;
+        return matchesSearch && matchesStatus && matchesChrono && matchesInvestigator;
       })
       .sort((a, b) => {
         let comp = 0;
@@ -94,6 +100,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       'Participant_ID',
       'Submission_ID',
       'Enrolled_Timestamp',
+      'Investigator_Name',
+      'Investigator_Role',
       'Status',
       'MBBS_Year',
       'Department',
@@ -133,6 +141,8 @@ export const Dashboard: React.FC<DashboardProps> = ({
       `"${p.participant_id}"`,
       `"${p.submission_id}"`,
       `"${p.enrolled_at}"`,
+      `"${p.investigator_name || 'Harsh Narware'}"`,
+      `"${p.investigator_role || 'Principal Investigator'}"`,
       `"${p.status}"`,
       `"${p.year_of_study}"`,
       `"${p.department}"`,
@@ -375,7 +385,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
           </div>
 
           {/* Search, Filter & Sort Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 pt-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3 pt-2">
             
             {/* Search Input */}
             <div className="relative">
@@ -387,6 +397,21 @@ export const Dashboard: React.FC<DashboardProps> = ({
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-9 pr-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 w-full"
               />
+            </div>
+
+            {/* Investigator Filter */}
+            <div>
+              <select
+                value={investigatorFilter}
+                onChange={(e) => setInvestigatorFilter(e.target.value)}
+                className="w-full text-xs border border-slate-300 rounded-lg py-1.5 px-2.5 bg-slate-50 text-slate-700 focus:outline-none"
+              >
+                <option value="ALL">All Investigators</option>
+                <option value="Harsh Narware">Harsh Narware (PI)</option>
+                <option value="Investigator 1">Investigator 1</option>
+                <option value="Investigator 2">Investigator 2</option>
+                <option value="Investigator 3">Investigator 3</option>
+              </select>
             </div>
 
             {/* Status Filter */}
@@ -450,6 +475,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <thead className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
               <tr>
                 <th className="p-3.5">Participant ID</th>
+                <th className="p-3.5">Investigator</th>
                 <th className="p-3.5">Batch / Year</th>
                 <th className="p-3.5">BMI (kg/m²)</th>
                 <th className="p-3.5">rMEQ Chronotype</th>
@@ -462,7 +488,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             <tbody className="divide-y divide-slate-100 text-slate-700">
               {filteredAndSortedParticipants.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-8 text-center text-slate-400 italic">
+                  <td colSpan={9} className="p-8 text-center text-slate-400 italic">
                     No participants matched your search and filter criteria.
                   </td>
                 </tr>
@@ -472,6 +498,10 @@ export const Dashboard: React.FC<DashboardProps> = ({
                     <td className="p-3.5">
                       <div className="font-mono font-bold text-blue-700">{p.participant_id}</div>
                       <div className="text-[10px] text-slate-400">{p.submission_id}</div>
+                    </td>
+                    <td className="p-3.5">
+                      <div className="font-semibold text-slate-800">{p.investigator_name || 'Harsh Narware'}</div>
+                      <div className="text-[10px] text-slate-500">{p.investigator_role || 'Principal Investigator'}</div>
                     </td>
                     <td className="p-3.5">
                       <div className="font-medium text-slate-900">{p.year_of_study}</div>
@@ -529,13 +559,36 @@ export const Dashboard: React.FC<DashboardProps> = ({
                       )}
                     </td>
                     <td className="p-3.5 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
+                      <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                        {/* WhatsApp 1-Click Direct Button */}
+                        <a
+                          href={`https://wa.me/${(p.mobile_number || '919876543210').replace(/[^0-9]/g, '')}?text=${encodeURIComponent(generateClinicalInterpretation(p, window.location.origin).formattedWhatsAppText)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-2 py-1 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white rounded transition-colors flex items-center gap-1 shadow-2xs"
+                          title="1-Click Send Diagnosis & PDF Link via WhatsApp"
+                        >
+                          <MessageSquare className="w-3 h-3" /> WA
+                        </a>
+
+                        {/* Report & Diagnosis Hub */}
+                        <button
+                          onClick={() => {
+                            onSelectParticipant(p);
+                            onNavigateTab('report');
+                          }}
+                          className="px-2 py-1 text-xs font-semibold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded transition-colors flex items-center gap-1"
+                          title="View Participant Diagnosis & Recommendations"
+                        >
+                          <FileText className="w-3 h-3" /> Report
+                        </button>
+
                         <button
                           onClick={() => {
                             onSelectParticipant(p);
                             onNavigateTab('signer');
                           }}
-                          className="px-2.5 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded transition-colors"
+                          className="px-2 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-800 rounded transition-colors"
                           title="Open Tablet Signer"
                         >
                           Sign
@@ -545,7 +598,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             onSelectParticipant(p);
                             onNavigateTab('hrv');
                           }}
-                          className="px-2.5 py-1 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded transition-colors"
+                          className="px-2 py-1 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-700 rounded transition-colors"
                           title="Kubios HRV Studio"
                         >
                           HRV
@@ -555,7 +608,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
                             onSelectParticipant(p);
                             onNavigateTab('pdf');
                           }}
-                          className="px-2.5 py-1 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded transition-colors flex items-center gap-1"
+                          className="px-2 py-1 text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded transition-colors flex items-center gap-1"
                           title="View PDF Dossier"
                         >
                           <Eye className="w-3 h-3" /> PDF

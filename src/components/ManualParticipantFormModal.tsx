@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, CheckCircle, Calculator, UserPlus, Sparkles, FileText, Clock, Moon, Sun, AlertTriangle } from 'lucide-react';
+import { X, CheckCircle, Calculator, UserPlus, Sparkles, FileText, Clock, Moon, Sun, AlertTriangle, Users } from 'lucide-react';
 import { ParticipantRecord } from '../types';
 import { generateParticipantId } from '../phase1/crypto';
+import { INVESTIGATOR_TEAM } from '../data/investigators';
 
 interface ManualParticipantFormModalProps {
   isOpen: boolean;
@@ -14,7 +15,11 @@ export const ManualParticipantFormModal: React.FC<ManualParticipantFormModalProp
   onClose,
   onParticipantCreated,
 }) => {
+  // Investigator State
+  const [selectedInvestigator, setSelectedInvestigator] = useState(INVESTIGATOR_TEAM[0].name);
+
   // Form State
+  const [participantName, setParticipantName] = useState('Rahul Sharma');
   const [yearOfStudy, setYearOfStudy] = useState('Second MBBS');
   const [department, setDepartment] = useState('Department of Physiology');
   const [age, setAge] = useState<number>(20);
@@ -23,6 +28,8 @@ export const ManualParticipantFormModal: React.FC<ManualParticipantFormModalProp
   const [weightKg, setWeightKg] = useState<number>(65);
 
   // Meal Timings
+  const [bedtime, setBedtime] = useState('11:00 PM – 11:30 PM');
+  const [wakeTime, setWakeTime] = useState('6:30 AM – 7:00 AM');
   const [breakfastTime, setBreakfastTime] = useState('8:00 AM – 9:00 AM');
   const [breakfastSkipped, setBreakfastSkipped] = useState('0–1 days / week');
   const [dinnerTime, setDinnerTime] = useState('8:30 PM – 9:30 PM');
@@ -64,6 +71,8 @@ export const ManualParticipantFormModal: React.FC<ManualParticipantFormModalProp
   };
   const chronotype = getChronotype(rmeqTotal);
 
+  const matchedInvestigator = INVESTIGATOR_TEAM.find(inv => inv.name === selectedInvestigator) || INVESTIGATOR_TEAM[0];
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newId = generateParticipantId('2026');
@@ -73,9 +82,12 @@ export const ManualParticipantFormModal: React.FC<ManualParticipantFormModalProp
 
     const newRecord: ParticipantRecord = {
       participant_id: newId,
+      participant_name: participantName.trim() || 'Volunteer Participant',
       submission_id: submissionId,
       enrolled_at: enrolledAt,
       status: 'PENDING_CONSENT',
+      investigator_name: matchedInvestigator.name,
+      investigator_role: matchedInvestigator.role,
       year_of_study: yearOfStudy,
       department: department,
       age: Number(age),
@@ -83,6 +95,8 @@ export const ManualParticipantFormModal: React.FC<ManualParticipantFormModalProp
       height_cm: Number(heightCm),
       weight_kg: Number(weightKg),
       bmi: bmiCalculated,
+      bedtime: bedtime,
+      wake_time: wakeTime,
       breakfast_time: breakfastTime,
       breakfast_skipped: breakfastSkipped,
       dinner_time: dinnerTime,
@@ -136,6 +150,36 @@ export const ManualParticipantFormModal: React.FC<ManualParticipantFormModalProp
             </div>
           </div>
 
+          {/* Investigator Assignment */}
+          <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2">
+            <div className="flex items-center gap-2 text-slate-800 font-bold text-xs">
+              <Users className="w-4 h-4 text-blue-600" />
+              <span>Assigned Data Collecting Investigator:</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-600 font-semibold mb-1 text-[11px]">Investigator Name</label>
+                <select
+                  value={selectedInvestigator}
+                  onChange={(e) => setSelectedInvestigator(e.target.value)}
+                  className="w-full border border-slate-300 rounded-lg p-2 bg-white text-xs font-semibold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {INVESTIGATOR_TEAM.map(inv => (
+                    <option key={inv.name} value={inv.name}>
+                      {inv.name} ({inv.role})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-slate-600 font-semibold mb-1 text-[11px]">Assigned Role</label>
+                <div className="p-2 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 font-medium text-xs">
+                  {matchedInvestigator.role}
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Section A: Socio-demographic & Anthropometry */}
           <div className="space-y-3">
             <div className="flex items-center justify-between border-b border-slate-200 pb-2">
@@ -146,6 +190,18 @@ export const ManualParticipantFormModal: React.FC<ManualParticipantFormModalProp
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="sm:col-span-2">
+                <label className="block text-slate-600 font-semibold mb-1">Participant Full Name</label>
+                <input
+                  type="text"
+                  value={participantName}
+                  onChange={(e) => setParticipantName(e.target.value)}
+                  placeholder="e.g. Rahul Sharma"
+                  className="w-full border border-slate-300 rounded-lg p-2 bg-slate-50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-blue-500 font-medium"
+                  required
+                />
+              </div>
+
               <div>
                 <label className="block text-slate-600 font-semibold mb-1">Year of Study</label>
                 <select

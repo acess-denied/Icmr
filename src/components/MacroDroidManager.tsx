@@ -1,36 +1,68 @@
 import React, { useState } from 'react';
-import { Smartphone, Download, Copy, Check, ExternalLink, Zap, Terminal, FileCode, Shield, CheckCircle2 } from 'lucide-react';
+import { Smartphone, Download, Copy, Check, ExternalLink, Zap, Terminal, FileCode, Shield, CheckCircle2, Mail, Layers, ArrowDown } from 'lucide-react';
 
 export const MacroDroidManager: React.FC = () => {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
   const macroJsonContent = `{
-  "macro_name": "ICMR_STS_Kubios_HRV_AutoCapture",
-  "version": "1.0",
+  "macro_name": "ICMR_STS_Kubios_HRV_ScrollingCapture_SMTP",
+  "version": "2.0",
+  "author": "ICMR STS Research Team",
   "triggers": [
     {
       "type": "Webhook",
       "identifier": "sts_hrv_measure",
-      "query_parameters": ["participant_id", "request_id"]
+      "query_parameters": ["participant_id", "participant_name", "request_id"]
     }
   ],
   "actions": [
     { "step": 1, "action": "Set Variable", "name": "var_participant_id", "value": "{trigger_param:participant_id}" },
-    { "step": 2, "action": "Set Clipboard", "value": "{var_participant_id}" },
-    { "step": 3, "action": "Launch App", "package": "com.kubios.hrv" },
-    { "step": 4, "action": "Wait & Click", "target": "Start Measurement" },
-    { "step": 5, "action": "Paste Tag", "text": "Participant: {var_participant_id}" },
-    { "step": 6, "action": "Wait for Screen Text", "text": "RESULT", "timeout": 180 },
-    { "step": 7, "action": "Take Screenshot", "path": "/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Result.jpg" },
-    { "step": 8, "action": "OCR Text Extraction", "output_var": "var_ocr_text" },
+    { "step": 2, "action": "Set Variable", "name": "var_participant_name", "value": "{trigger_param:participant_name}" },
+    { "step": 3, "action": "Set Clipboard", "value": "{var_participant_id}" },
+    { "step": 4, "action": "Launch App", "package": "com.kubios.hrv" },
+    { "step": 5, "action": "Wait & Click", "target": "Start Measurement" },
+    { "step": 6, "action": "Paste Tag", "text": "Participant: {var_participant_id} | {var_participant_name}" },
+    { "step": 7, "action": "Wait for Screen Text", "text": "RESULT", "timeout": 180 },
+    
+    // Part 1: Top Dashboard Screen (Readiness, PNS, SNS, HR)
+    { "step": 8, "action": "Take Screenshot", "path": "/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Part1_Top.jpg" },
+    { "step": 9, "action": "Wait", "duration_ms": 600 },
+    
+    // Scrolling Action: Swipe Down to reveal Bottom Metrics (Stress Index, RMSSD, SDNN, LF/HF)
+    { "step": 10, "action": "Gesture / Swipe", "from_x": 540, "from_y": 1800, "to_x": 540, "to_y": 600, "duration_ms": 500 },
+    { "step": 11, "action": "Wait", "duration_ms": 800 },
+    
+    // Part 2: Scrolled Bottom Screen Capture
+    { "step": 12, "action": "Take Screenshot", "path": "/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Part2_Bottom.jpg" },
+    { "step": 13, "action": "OCR Text Extraction", "output_var": "var_ocr_text" },
+    
+    // Action A: Send Email via SMTP directly to Portal IMAP Inbox
     {
-      "step": 9,
+      "step": 14,
+      "action": "Send Email (SMTP)",
+      "smtp_server": "smtp.gmail.com",
+      "smtp_port": 587,
+      "use_tls": true,
+      "to": "sts.recorder.device@gmail.com",
+      "subject": "[STS-HRV] Participant: {var_participant_id} | {var_participant_name} ({system_time})",
+      "body": "Kubios HRV Automatic Ingestion.\\nParticipant: {var_participant_id}\\nName: {var_participant_name}\\nOCR Extracted Raw:\\n{var_ocr_text}",
+      "attachments": [
+        "/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Part1_Top.jpg",
+        "/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Part2_Bottom.jpg"
+      ]
+    },
+
+    // Action B: HTTP POST Webhook Fallback
+    {
+      "step": 15,
       "action": "HTTP POST",
       "url": "https://icmr-sts-worker.workers.dev/api/hrv",
       "body": {
         "participant_id": "{var_participant_id}",
+        "participant_name": "{var_participant_name}",
         "ocr_raw_text": "{var_ocr_text}",
-        "screenshot_base64": "{file_base64:/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Result.jpg}"
+        "screenshot_part1_base64": "{file_base64:/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Part1_Top.jpg}",
+        "screenshot_part2_base64": "{file_base64:/storage/emulated/0/Pictures/Screenshots/STS_Kubios_Part2_Bottom.jpg}"
       }
     }
   ]
@@ -49,18 +81,18 @@ export const MacroDroidManager: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800">Sensor Automation</span>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-100 text-blue-800">MacroDroid + Kubios OCR</span>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-900">MacroDroid Scrolling Screenshot + SMTP Email</span>
           </div>
-          <h2 className="text-xl font-bold text-slate-900 mt-2">MacroDroid Mobile Automation Package</h2>
+          <h2 className="text-xl font-bold text-slate-900 mt-2">MacroDroid Mobile Automation & Ingestion Package</h2>
           <p className="text-sm text-slate-600">
-            Exportable macro definitions, webhook triggers, and step-by-step configuration for automated Kubios HRV acquisition.
+            Exportable macro definitions, swipe-scroll gesture automation, and SMTP/IMAP email dispatch for complete Kubios HRV acquisition.
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <button
             onClick={() => handleCopy(macroJsonContent, 'macro_export')}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
           >
             {copiedSection === 'macro_export' ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             {copiedSection === 'macro_export' ? 'Copied Macro JSON!' : 'Copy Macro JSON'}
@@ -76,28 +108,28 @@ export const MacroDroidManager: React.FC = () => {
           <h3 className="font-bold text-slate-900 text-sm">Install Apps on Android</h3>
           <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside">
             <li>Install <b>Kubios HRV</b> from Play Store.</li>
-            <li>Install <b>MacroDroid</b> & grant Accessibility + Screen Overlay permissions.</li>
-            <li>Pair Bluetooth ECG Sensor (Polar H10).</li>
+            <li>Install <b>MacroDroid</b> & grant Accessibility + Screen Overlay + Storage permissions.</li>
+            <li>Pair Bluetooth ECG/PPG Sensor with Kubios App.</li>
           </ul>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
           <div className="w-8 h-8 bg-indigo-50 text-indigo-700 font-bold rounded-lg flex items-center justify-center text-sm">2</div>
-          <h3 className="font-bold text-slate-900 text-sm">Import Macro Definition</h3>
+          <h3 className="font-bold text-slate-900 text-sm">Import Macro with Scrolling Logic</h3>
           <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside">
             <li>In MacroDroid, tap <b>Export/Import</b> → <b>Import</b>.</li>
             <li>Select <code className="font-mono text-slate-800">STS_Kubios_HRV_Capture.macro.json</code>.</li>
-            <li>Enable the <b>sts_hrv_measure</b> Webhook trigger.</li>
+            <li>Configure SMTP sending account (e.g. Gmail App Password).</li>
           </ul>
         </div>
 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-3">
           <div className="w-8 h-8 bg-emerald-50 text-emerald-700 font-bold rounded-lg flex items-center justify-center text-sm">3</div>
-          <h3 className="font-bold text-slate-900 text-sm">Trigger & Auto-Ingest</h3>
+          <h3 className="font-bold text-slate-900 text-sm">Auto-Scroll & SMTP Ingestion</h3>
           <ul className="text-xs text-slate-600 space-y-1.5 list-disc list-inside">
-            <li>Tablet sends participant ID to phone webhook.</li>
-            <li>Macro auto-pastes ID tag in Kubios note.</li>
-            <li>Auto-captures screenshot & sends HTTP POST.</li>
+            <li>Macro captures <b>Part 1 (Top screen)</b>.</li>
+            <li>Performs automated scroll down gesture.</li>
+            <li>Captures <b>Part 2 (Scrolled bottom)</b> and emails to portal!</li>
           </ul>
         </div>
 
@@ -108,7 +140,7 @@ export const MacroDroidManager: React.FC = () => {
         <div className="flex justify-between items-center border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2 text-xs font-mono text-emerald-400">
             <FileCode className="w-4 h-4" />
-            <span>macrodroid/STS_Kubios_HRV_Capture.macro.json</span>
+            <span>macrodroid/STS_Kubios_HRV_ScrollingCapture_SMTP.macro.json</span>
           </div>
           <button
             onClick={() => handleCopy(macroJsonContent, 'macro_code')}
@@ -119,10 +151,11 @@ export const MacroDroidManager: React.FC = () => {
           </button>
         </div>
 
-        <pre className="font-mono text-xs overflow-x-auto text-slate-300 p-2 leading-relaxed max-h-96">
+        <pre className="font-mono text-xs text-slate-300 overflow-x-auto p-3 bg-slate-950/70 rounded-lg border border-slate-800 max-h-96">
           {macroJsonContent}
         </pre>
       </div>
+
     </div>
   );
 };

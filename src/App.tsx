@@ -14,11 +14,15 @@ import {
   ChevronRight,
   Sparkles,
   Lock,
-  FileSpreadsheet
+  FileSpreadsheet,
+  PenTool,
+  Mail
 } from 'lucide-react';
 
 import { ParticipantRecord, AuditEvent, KubiosHrvRecord } from './types';
 import { generateEventId } from './phase1/crypto';
+import { getStoredInvestigatorSignatures } from './data/investigators';
+import { generateHandwrittenSignatureDataUrl } from './utils/signatureUtils';
 import { Dashboard } from './components/Dashboard';
 import { TabletSigner } from './components/TabletSigner';
 import { KubiosHrvStudio } from './components/KubiosHrvStudio';
@@ -26,24 +30,30 @@ import { PdfAppendixViewer } from './components/PdfAppendixViewer';
 import { MacroDroidManager } from './components/MacroDroidManager';
 import { PlaybookViewer } from './components/PlaybookViewer';
 import { GoogleIntegrationHub } from './components/GoogleIntegrationHub';
+import { ParticipantReportPortal } from './components/ParticipantReportPortal';
+import { InvestigatorSignatureManager } from './components/InvestigatorSignatureManager';
+import { ImapHrvMappingHub } from './components/ImapHrvMappingHub';
 
 export function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'signer' | 'hrv' | 'pdf' | 'macrodroid' | 'playbook' | 'google_sync'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'google_sync' | 'imap_mapping' | 'signer' | 'hrv' | 'pdf' | 'report' | 'signatures' | 'macrodroid' | 'playbook'>('dashboard');
 
-  // Sample Research Participants
+  // Sample Research Participants with prominent names
   const [participants, setParticipants] = useState<ParticipantRecord[]>([
     {
       participant_id: 'STS-2026-7F3A91',
+      participant_name: 'Aarav Sharma',
       submission_id: 'SUB-1756540000-01',
       enrolled_at: '31-Aug-2026 02:20 IST',
       status: 'FINALIZED',
       year_of_study: 'Second MBBS',
-      department: 'Department of Physiology',
+      department: 'MBBS (Department of Physiology)',
       age: 20,
       gender: 'Male',
       height_cm: 172.5,
       weight_kg: 68.0,
       bmi: 22.8,
+      bedtime: '11:00 PM – 11:30 PM',
+      wake_time: '6:30 AM – 7:00 AM',
       breakfast_time: '8:00 AM – 9:00 AM',
       breakfast_skipped: '0–1 days / week',
       dinner_time: '8:30 PM – 9:30 PM',
@@ -55,8 +65,10 @@ export function App() {
       sleep_duration: '6.5 hours / night',
       caffeine_frequency: '1 cup / day (Morning)',
       physical_activity: 'Moderate (150 min/wk)',
-      participant_signature: 'DATA_URL_SIG_P1',
-      investigator_signature: 'DATA_URL_SIG_INV1',
+      investigator_name: 'Harsh Narware',
+      investigator_role: 'Principal Investigator',
+      participant_signature: generateHandwrittenSignatureDataUrl('Aarav Sharma', '#091e42'),
+      investigator_signature: generateHandwrittenSignatureDataUrl('Harsh Narware', '#1e3a8a'),
       participant_signed_at: '31-Aug-2026 02:30 IST',
       investigator_signed_at: '31-Aug-2026 02:35 IST',
       hrv_record: {
@@ -79,22 +91,28 @@ export function App() {
         respiratory_rate: 23.23,
         measurement_quality: 'GOOD',
         screenshot_sha256: '9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e',
+        is_physically_verified: true,
+        verified_by: 'Harsh Narware (Principal Investigator)',
+        entry_mode: 'MACRODROID_IMAP_INGESTED'
       },
       pdf_sha256: '4c7b2a9f1e3c5d7b9a1f3e5c7a9b1d3f5e7c9a1b',
       public_access_token: 'DOC-7F3A91-SEALED'
     },
     {
       participant_id: 'STS-2026-C8B1E4',
+      participant_name: 'Pooja Patel',
       submission_id: 'SUB-1756540000-02',
       enrolled_at: '31-Aug-2026 02:40 IST',
       status: 'HRV_PENDING',
       year_of_study: 'First MBBS',
-      department: 'Department of Physiology',
+      department: 'MBBS (Department of Physiology)',
       age: 19,
       gender: 'Female',
       height_cm: 160.0,
       weight_kg: 54.5,
       bmi: 21.3,
+      bedtime: '10:30 PM – 11:00 PM',
+      wake_time: '6:00 AM – 6:30 AM',
       breakfast_time: '7:30 AM – 8:30 AM',
       breakfast_skipped: '0 days / week',
       dinner_time: '7:45 PM – 8:45 PM',
@@ -106,21 +124,28 @@ export function App() {
       sleep_duration: '7.5 hours / night',
       caffeine_frequency: 'None / Rare',
       physical_activity: 'Active (300 min/wk)',
-      participant_signature: 'DATA_URL_SIG_P2',
+      investigator_name: 'Investigator 1',
+      investigator_role: 'Co-Investigator (MBBS Research Team)',
+      participant_signature: generateHandwrittenSignatureDataUrl('Pooja Patel', '#091e42'),
+      investigator_signature: generateHandwrittenSignatureDataUrl('Dr. Investigator 1', '#1e3a8a'),
       participant_signed_at: '31-Aug-2026 02:45 IST',
+      investigator_signed_at: '31-Aug-2026 02:48 IST',
     },
     {
       participant_id: 'STS-2026-9A4D22',
+      participant_name: 'Rohan Verma',
       submission_id: 'SUB-1756540000-03',
       enrolled_at: '31-Aug-2026 02:50 IST',
       status: 'PENDING_CONSENT',
       year_of_study: 'Second MBBS',
-      department: 'Department of Physiology',
+      department: 'MBBS (Department of Physiology)',
       age: 21,
       gender: 'Male',
       height_cm: 178.0,
       weight_kg: 74.0,
       bmi: 23.4,
+      bedtime: '1:00 AM – 1:30 AM',
+      wake_time: '8:30 AM – 9:00 AM',
       breakfast_time: '9:30 AM – 10:30 AM',
       breakfast_skipped: '3–4 days / week',
       dinner_time: '10:00 PM – 11:00 PM',
@@ -132,6 +157,8 @@ export function App() {
       sleep_duration: '5.5 hours / night',
       caffeine_frequency: '2–3 cups / day',
       physical_activity: 'Sedentary (<150 min/wk)',
+      investigator_name: 'Investigator 2',
+      investigator_role: 'Co-Investigator (Data Collection Lead)',
     }
   ]);
 
@@ -143,7 +170,7 @@ export function App() {
       event_id: 'EVT-004',
       timestamp: '2026-08-31T02:35:12Z',
       event_type: 'CRF_FINALIZED',
-      actor: 'Dr. Harsh Narware (PI)',
+      actor: 'Harsh Narware (Principal Investigator)',
       participant_id: 'STS-2026-7F3A91',
       details: 'Dual signed & Kubios screenshot attached as Appendix 1 (2 Pgs sealed).',
       event_hash: '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'
@@ -247,12 +274,14 @@ export function App() {
     setAuditLogs(prev => [newAudit, ...prev]);
   };
 
-  const handleInvestigatorCoSign = (participantId: string, sigBase64: string, investigatorName: string) => {
+  const handleInvestigatorCoSign = (participantId: string, sigBase64: string, investigatorName: string, investigatorRole?: string) => {
     setParticipants(prev => prev.map(p => {
       if (p.participant_id === participantId) {
         return {
           ...p,
           status: 'FINALIZED',
+          investigator_name: investigatorName,
+          investigator_role: investigatorRole || 'Principal Investigator',
           investigator_signature: sigBase64,
           investigator_signed_at: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' IST'
         };
@@ -264,9 +293,60 @@ export function App() {
       event_id: generateEventId(),
       timestamp: new Date().toISOString(),
       event_type: 'CRF_FINALIZED',
-      actor: investigatorName,
+      actor: `${investigatorName} (${investigatorRole || 'Attesting Investigator'})`,
       participant_id: participantId,
-      details: 'Dual signed and sealed in R2 with Kubios HRV Appendix.',
+      details: 'Dual signed on tablet canvas and attached as high-resolution signature image in CRF Dossier.',
+      event_hash: Math.random().toString(36).substring(2, 14)
+    };
+    setAuditLogs(prev => [newAudit, ...prev]);
+  };
+
+  const handleMapHrvToParticipant = (participantId: string, hrvData: KubiosHrvRecord) => {
+    setParticipants(prev => prev.map(p => {
+      if (p.participant_id === participantId) {
+        const updated = {
+          ...p,
+          hrv_record: hrvData,
+          status: p.status === 'FINALIZED' ? 'FINALIZED' : ('HRV_RECORDED' as any)
+        };
+        if (selectedParticipant.participant_id === participantId) {
+          setSelectedParticipant(updated);
+        }
+        return updated;
+      }
+      return p;
+    }));
+
+    const targetP = participants.find(p => p.participant_id === participantId);
+    const newAudit: AuditEvent = {
+      event_id: generateEventId(),
+      timestamp: new Date().toISOString(),
+      event_type: 'HRV_ATTACHED',
+      actor: 'MACRODROID_IMAP_INGESTION',
+      participant_id: participantId,
+      details: `Ingested 2-part scrolling screenshot & Kubios metrics (Readiness: ${hrvData.readiness_percentage}%, PNS: ${hrvData.pns_index}, SNS: ${hrvData.sns_index}, RMSSD: ${hrvData.rmssd} ms) for ${targetP?.participant_name || participantId}.`,
+      event_hash: Math.random().toString(36).substring(2, 14)
+    };
+    setAuditLogs(prev => [newAudit, ...prev]);
+  };
+
+  const handleAddImportedParticipants = (imported: ParticipantRecord[]) => {
+    if (!imported || imported.length === 0) return;
+    setParticipants(prev => {
+      const existingIds = new Set(prev.map(p => p.participant_id));
+      const toAdd = imported.filter(p => !existingIds.has(p.participant_id));
+      return [...toAdd, ...prev];
+    });
+    if (imported[0]) {
+      setSelectedParticipant(imported[0]);
+    }
+    const newAudit: AuditEvent = {
+      event_id: generateEventId(),
+      timestamp: new Date().toISOString(),
+      event_type: 'GOOGLE_SHEETS_SYNC',
+      actor: 'GOOGLE_WORKSPACE_SYNC',
+      participant_id: imported[0]?.participant_id || 'BULK_IMPORT',
+      details: `Imported ${imported.length} participant records from Google Workspace (Sheets/Forms).`,
       event_hash: Math.random().toString(36).substring(2, 14)
     };
     setAuditLogs(prev => [newAudit, ...prev]);
@@ -298,7 +378,7 @@ export function App() {
               </div>
             </div>
 
-            {/* Quick Participant Selector */}
+            {/* Quick Participant Selector with Prominent Name */}
             <div className="flex items-center gap-3">
               <div className="hidden sm:flex items-center gap-2 text-xs bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-lg">
                 <span className="text-slate-500 font-medium">Active Participant:</span>
@@ -308,11 +388,11 @@ export function App() {
                     const found = participants.find(p => p.participant_id === e.target.value);
                     if (found) setSelectedParticipant(found);
                   }}
-                  className="bg-transparent font-mono font-bold text-blue-800 focus:outline-none cursor-pointer"
+                  className="bg-transparent font-bold text-blue-900 focus:outline-none cursor-pointer"
                 >
                   {participants.map(p => (
                     <option key={p.participant_id} value={p.participant_id}>
-                      {p.participant_id} ({p.status})
+                      {p.participant_name} ({p.participant_id}) — {p.status}
                     </option>
                   ))}
                 </select>
@@ -344,6 +424,16 @@ export function App() {
             </button>
 
             <button
+              onClick={() => setActiveTab('imap_mapping')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                activeTab === 'imap_mapping' ? 'bg-indigo-900 text-white shadow-sm' : 'text-indigo-900 bg-indigo-50 hover:bg-indigo-100'
+              }`}
+            >
+              <Mail className="w-3.5 h-3.5 text-indigo-500" />
+              <span>IMAP HRV Ingestion & Mapping</span>
+            </button>
+
+            <button
               onClick={() => setActiveTab('signer')}
               className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
                 activeTab === 'signer' ? 'bg-blue-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
@@ -371,6 +461,26 @@ export function App() {
             >
               <FileText className="w-3.5 h-3.5" />
               <span>CRF & Appendix Viewer</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('report')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                activeTab === 'report' ? 'bg-indigo-900 text-white shadow-sm' : 'text-indigo-900 bg-indigo-50 hover:bg-indigo-100'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 text-indigo-500" />
+              <span>Participant Report & Dispatch</span>
+            </button>
+
+            <button
+              onClick={() => setActiveTab('signatures')}
+              className={`flex items-center gap-1.5 px-3 py-2 rounded-lg transition-colors whitespace-nowrap ${
+                activeTab === 'signatures' ? 'bg-blue-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              <PenTool className="w-3.5 h-3.5" />
+              <span>Investigator Signatures</span>
             </button>
 
             <button
@@ -412,6 +522,18 @@ export function App() {
         {activeTab === 'google_sync' && (
           <GoogleIntegrationHub
             participants={participants}
+            onImportParticipants={handleAddImportedParticipants}
+          />
+        )}
+
+        {activeTab === 'imap_mapping' && (
+          <ImapHrvMappingHub
+            participants={participants}
+            onMapHrvToParticipant={handleMapHrvToParticipant}
+            onSelectParticipantForCrf={(p) => {
+              setSelectedParticipant(p);
+              setActiveTab('pdf');
+            }}
           />
         )}
 
@@ -420,6 +542,8 @@ export function App() {
             participant={selectedParticipant}
             onParticipantSign={handleParticipantSign}
             onInvestigatorCoSign={handleInvestigatorCoSign}
+            onNavigateToPdfViewer={() => setActiveTab('pdf')}
+            onNavigateToReport={() => setActiveTab('report')}
           />
         )}
 
@@ -433,6 +557,26 @@ export function App() {
 
         {activeTab === 'pdf' && (
           <PdfAppendixViewer participant={selectedParticipant} />
+        )}
+
+        {activeTab === 'report' && (
+          <ParticipantReportPortal
+            participant={selectedParticipant}
+            onOpenPdfDossier={(p) => {
+              setSelectedParticipant(p);
+              setActiveTab('pdf');
+            }}
+            onBackToDashboard={() => setActiveTab('dashboard')}
+          />
+        )}
+
+        {activeTab === 'signatures' && (
+          <InvestigatorSignatureManager
+            onSignaturesUpdated={() => {
+              // Trigger re-render of components pulling from stored signatures
+              setParticipants(prev => [...prev]);
+            }}
+          />
         )}
 
         {activeTab === 'macrodroid' && (

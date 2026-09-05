@@ -1,147 +1,196 @@
 # ICMR STS 2026 Research Ingestion & Clinical Dossier Platform
 
-> **Study Title**: *Association Between Meal Timing, Chronotype, and Heart Rate Variability Among Undergraduate Medical Students*  
-> **Protocol / Ethics Ref**: `IEC/STS/2026/042` | **Target Cohort**: 120 MBBS Undergraduates  
-> **Infrastructure Target**: Cloudflare Workers + D1 SQL + R2 Vault + Cloudflare Pages + Cloudflare Zero Trust (WARP VPN)
+> **Study Title:** *Association Between Meal Timing, Chronotype, and Heart Rate Variability Among Medical Undergraduates*  
+> **Protocol ID:** `IEC/STS/2026/042` | **Host Department:** Department of Physiology  
+> **Principal Investigator:** Harsh Narware | **Co-Investigators:** Investigator 1, Investigator 2, Investigator 3  
 
 ---
 
-## 🔬 1. Project Scope & Architecture Overview
+## 🌟 Overview & Architecture
 
-This platform provides an end-to-end, privacy-preserving, and audit-compliant clinical data pipeline for medical research under Indian Council of Medical Research (ICMR) Short Term Studentship (STS) protocols.
+This repository contains the complete, production-ready research platform designed for the ICMR STS 2026 physiological study. It implements an automated, zero-latency pipeline connecting:
+
+1. **Google Forms & Google Sheets**: Self-administered chrononutrition and rMEQ questionnaire with automatic sheet pairing.
+2. **Google Apps Script (`Code.gs`)**: Automatically creates the Google Form, maps all question items, signs responses with HMAC-SHA256, and pushes them to Cloudflare.
+3. **Cloudflare Worker (`phase1-cloudflare-worker`)**: Edge API that validates cryptographic signatures, enforces schema integrity, manages D1 SQL records, and handles hardware triggers.
+4. **Cloudflare D1 & R2**: Relational edge SQL database and S3-compatible storage for sealed 5-page research PDF dossiers and raw Kubios screenshots.
+5. **Investigator Team Portal (React 19 + Tailwind)**: Multi-investigator control center with investigator role assignment, live filtering, and SPSS/R clinical dataset CSV exports.
+6. **Tablet Signing Canvas**: Dual biometric signature capture pad that stamps real high-resolution signature images into the final CRF dossier.
+7. **Kubios HRV Studio**: Optical Character Recognition (OCR) engine with a mandatory **Physical "OK" Verification** step and manual fallback to guarantee zero false-ingestions.
+8. **5-Page Official ICMR STS Case Record Form (CRF) Dossier**: Print-ready, high-resolution multi-page legal document with participant and investigator signatures, full socio-demographics, chrononutrition metrics, and Kubios HRV screenshot appendix.
+9. **Multi-Channel Participant Delivery**:
+   - **WhatsApp 1-Click Direct Button**: Instantly opens WhatsApp with pre-formatted clinical diagnosis and PDF link.
+   - **MacroDroid SMS Automation**: Triggers the researcher's phone to dispatch SMS directly from the device's SIM card.
+   - **Participant Portal View**: Immediate web-accessible diagnostic summary with PDF download.
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                                CLINICAL DATA PIPELINE                                   │
-└─────────────────────────────────────────────────────────────────────────────────────────┘
-
-  [ Google Form ] ──► [ Google Sheet ]
-                              │
-                              ▼ (onFormSubmit Trigger + Canonical HMAC-SHA256 Signature)
-                  [ Cloudflare Worker Edge API ]
-                              │
-             ┌────────────────┴────────────────┬───────────────────────────┐
-             ▼                                 ▼                           ▼
-    [ Cloudflare D1 SQL ]              [ Cloudflare R2 ]         [ Cloudflare Zero Trust ]
-    (9 Relational Tables)           (Signed Dossiers & Raw)       (WARP Device Restriction)
-             │                                 │                           │
-             └────────────────┬────────────────┴───────────────────────────┘
-                              ▼
-           [ Cloudflare Pages Frontend Web Application ]
-                              │
-   ┌──────────────────────────┼────────────────────────────┬────────────────────────┐
-   ▼                          ▼                            ▼                        ▼
-[ Investigator Hub ]   [ Tablet Signer ]        [ Kubios HRV Studio ]     [ Dossier PDF ]
-- Sorting & Filters    - Participant Canvas     - MacroDroid Integration  - Page 1: CRF
-- Bulk SPSS/CSV Export - Investigator Co-Sign   - AI OCR + Manual Backup  - Page 2: Appendix
+┌────────────────────────┐      ┌─────────────────────────┐      ┌─────────────────────────┐
+│      Google Form       │ ───> │   Google Apps Script    │ ───> │    Cloudflare Worker    │
+│  (MBBS Questionnaire)  │      │  (HMAC-SHA256 Signed)   │      │    (Edge Validation)    │
+└────────────────────────┘      └─────────────────────────┘      └────────────┬────────────┘
+                                                                              │
+                                      ┌───────────────────────────────────────┴─────────────────┐
+                                      ▼                                                         ▼
+                          ┌───────────────────────┐                                 ┌───────────────────────┐
+                          │   Cloudflare D1 SQL   │                                 │   Cloudflare R2       │
+                          │   (9-Table Database)  │                                 │   (Sealed Documents)  │
+                          └───────────────────────┘                                 └───────────────────────┘
+                                      ▲                                                         ▲
+                                      │                                                         │
+                                      └───────────────────────┬─────────────────────────────────┘
+                                                              │
+                                                ┌─────────────┴─────────────┐
+                                                ▼                           ▼
+                                    ┌───────────────────────┐   ┌───────────────────────┐
+                                    │ Investigator Dashboard│   │   Participant Portal  │
+                                    │ (Tablet Signer / OCR) │   │ (WhatsApp / SMS / PDF)│
+                                    └───────────────────────┘   └───────────────────────┘
 ```
 
 ---
 
-## 🛡️ 2. Google Sheets Integration: How It Works
+## 👥 Investigator Team Roles & Signature Architecture
 
-### **No Google API Keys or OAuth Secrets Required**
-We **do NOT** ask for your Google account password, Google Cloud API keys, or OAuth credentials. Instead, the system uses a **Cryptographic Push Webhook**:
+The system supports a distributed data-collection team to streamline large-batch intake of medical undergraduates:
 
-1. **Google Form Submission**: When an MBBS student completes your Google Form, the response is recorded in your Google Sheet.
-2. **Apps Script Trigger (`onFormSubmit`)**: An embedded script in your Sheet generates a random, cryptographically unique ID (`STS-2026-XXXXXX`).
-3. **HMAC-SHA256 Signing**: The script builds a canonical payload and signs it using a shared secret (`STS_WEBHOOK_SECRET`) stored only in script properties.
-4. **HTTPS Webhook POST**: Google sends the signed payload to `https://icmr-sts-worker.<subdomain>.workers.dev/api/form-submit`.
-5. **Instant Edge Verification**: The Cloudflare Worker verifies the signature, enforces replay protection, and saves the data to the D1 database.
-6. **Sheet Sync Back**: Apps Script records `STS Sync Status = SYNCED` in the Sheet so entries are never duplicated.
+| Name | Role | Department / Designation | Responsibilities |
+| :--- | :--- | :--- | :--- |
+| **Harsh Narware** | **Principal Investigator** | Department of Physiology | Protocol oversight, final CRF sealing, ethics adherence |
+| **Investigator 1** | **Co-Investigator** | MBBS Research Team | In-person participant intake, informed consent, tablet signing |
+| **Investigator 2** | **Co-Investigator** | Data Collection Lead | Anthropometry (Height, Weight, Asian-Indian BMI), rMEQ validation |
+| **Investigator 3** | **Co-Investigator** | HRV & Signal Acquisition Lead | Polar H10 placement, Kubios HRV recording & physical OK audit |
+
+### Dual Biometric Signature Engine
+- **Canvas Signature Pad:** Captures smooth, high-resolution vector strokes with touch smoothing (`canvas.toDataURL('image/png')`).
+- **Signature Image Rendering:** Both the **Participant Signature** and the **Attesting Investigator Signature** are dynamically embedded as real images directly in the generated 5-page CRF dossier and saved into the immutable audit trail.
 
 ---
 
-## 🚀 3. Automated 1-Click Cloudflare Deployment (`./setup.sh`)
+## 📑 Official 5-Page ICMR STS Case Record Form (CRF) Dossier
 
-The root `setup.sh` script automates the complete provisioning and deployment on a fresh Cloudflare account.
+The platform generates a standardized 5-page dossier conforming strictly to ICMR STS reporting guidelines:
 
-### **Prerequisites**
-- Node.js 18+ and `npm` installed.
-- OpenSSL (pre-installed on macOS/Linux).
-- A free or paid Cloudflare account.
+1. **Page 1: Participant Information & Formal Consent Statement**  
+   Institutional header, ethics approval metadata, study explanation, participant rights, voluntary consent acknowledgement, and embedded participant signature.
+2. **Page 2: Socio-Demographic & Asian-Indian Anthropometric Profile**  
+   Age, gender, academic batch (MBBS year), department, contact details, height, weight, calculated BMI, and WHO Asian-Indian obesity cutoffs.
+3. **Page 3: Chrononutrition & Dietary Pattern Evaluation**  
+   Wake/bed timings, breakfast timing and skipping frequency, dinner timing, night eating syndrome screening, eating window duration, and meal regularity.
+4. **Page 4: Reduced Morningness-Eveningness Questionnaire (rMEQ) & Sleep Profile**  
+   5-item rMEQ scoring (1–25), circadian chronotype classification (Morning / Intermediate / Evening type), sleep duration, caffeine intake, and physical activity score.
+5. **Page 5: Heart Rate Variability (HRV) Assessment & Appendix 1 (Kubios Screenshot)**  
+   Resting HR, RMSSD, SDNN, LF Power, HF Power, LF/HF Ratio, Parasympathetic (PNS) & Sympathetic (SNS) Indices, high-resolution Kubios mobile screenshot attachment, and final co-signature of the attesting investigator.
 
-### **Deployment Command**
+---
+
+## 🔍 Kubios HRV Studio: OCR & Physical "OK" Verification
+
+To prevent spurious OCR reading errors from contaminating the clinical dataset, data entry follows a rigorous 2-step verification protocol:
+
+1. **OCR Pre-Extraction:** Optical character recognition reads heart rate, RMSSD, SDNN, frequency powers, and autonomic indices directly from uploaded screenshots or live mobile camera captures.
+2. **Physical "OK" Button & Manual Tuning:** Extracted parameters are held in a **Staging Buffer**. The investigator reviews the screenshot side-by-side with the digitised numbers, makes any necessary minor corrections, checks the attestation box, and clicks **"Physical OK & Accept Ingestion"**.
+3. **Manual Direct Entry Fallback:** If a screenshot is blurry or unreadable, the investigator can toggle **Manual Backup Entry** to enter values with real-time range validation.
+
+---
+
+## 🚀 Quick Start with `setup.sh`
+
+The `./setup.sh` script automates the entire provisioning and deployment workflow from your PC:
+
 ```bash
 chmod +x setup.sh
 ./setup.sh
 ```
 
-### **What the Script Provisions Automatically**
-1. **Cloudflare Authentication**: Connects via `CLOUDFLARE_API_TOKEN` or interactive Wrangler browser login.
-2. **D1 SQL Database**: Creates `icmr_sts_research_db` and runs the 9-table schema migration (`./d1/schema.sql`).
-3. **R2 Object Vault**: Provisions `icmr-sts-documents` bucket for storing high-resolution Kubios screenshots and finalized dossiers.
-4. **HMAC Secrets**: Generates a 256-bit cryptographically secure secret and injects it into Worker secrets (`STS_WEBHOOK_SECRET`).
-5. **Worker Edge Backend**: Deploys `icmr-sts-worker` to Cloudflare edge locations worldwide.
-6. **Pages Web Application**: Builds the React 19 / Tailwind CSS application (`npm run build`) and deploys to Cloudflare Pages (`icmr-sts-portal.pages.dev`).
-7. **Cloudflare Zero Trust Instructions**: Outlines the exact policy rules to lock the portal to your Cloudflare One WARP VPN.
+### Setup Script Flow:
+1. **Cloudflare Authentication**: Prompts for `CLOUDFLARE_API_TOKEN` or launches interactive browser login.
+2. **Resource Provisioning**: Automatically initializes the D1 SQL database (`icmr_sts_research_db`), executes `./d1/schema.sql`, and creates the R2 bucket (`icmr-sts-documents`).
+3. **HMAC Cryptographic Secret**: Generates a 64-character hex key for tamper-proof webhook verification.
+4. **Google Form & Sheets Pairing**: 
+   - Displays instructions to paste `phase1-apps-script/Code.gs` into your Google Sheet.
+   - Running `createAndLinkStudyForm()` programmatically generates the complete Google Form.
+   - The setup script prompts you to enter the `FORM_ID`, `SHEET_ID`, and `FORM_URL` from the execution log.
+5. **MacroDroid Webhook Configuration**: Prompts for your device's MacroDroid webhook URLs for HRV measurement triggers and SMS dispatch.
+6. **Consolidated Push**: Syncs all environment variables and secrets to Cloudflare and deploys both the Worker backend and Pages frontend in a single final push.
 
 ---
 
-## 🔒 4. Restricting Access via Cloudflare Zero Trust (Cloudflare One)
+## 🩺 Clinical Interpretation Engine (`src/data/interpretationRules.ts`)
 
-To guarantee that **nobody on the public internet can view your research portal**, configure Cloudflare Access:
+All diagnostic cutoffs, categorizations, and advice templates are centralized in `src/data/interpretationRules.ts` for transparent clinical customization:
 
-1. Go to **Cloudflare Zero Trust Dashboard** (`dash.teams.cloudflare.com`) > **Access** > **Applications**.
-2. Click **Add an Application** > Choose **Self-hosted**.
-3. Set **Application domain** to your Cloudflare Pages URL (e.g. `icmr-sts-portal.pages.dev`).
-4. Under **Policies**, create an **Allow** rule:
-   - **Include**: *WARP* (Only devices running the Cloudflare WARP client).
-   - **OR Include**: *Emails ending in* `@your-institution.edu.in`.
-5. Save the application. Now, only enrolled devices on your private Cloudflare One network can access the portal.
+### 1. Asian-Indian BMI Classification (WHO Consensus)
+- **Underweight:** `< 18.5 kg/m²`
+- **Normal weight:** `18.5 – 22.9 kg/m²`
+- **Overweight:** `23.0 – 24.9 kg/m²`
+- **Obesity:** `≥ 25.0 kg/m²`
 
----
+### 2. Reduced Morningness-Eveningness Questionnaire (rMEQ)
+- **Morning type (Lark):** Score `18 – 25`
+- **Intermediate type:** Score `12 – 17`
+- **Evening type (Owl):** Score `4 – 11`
 
-## 📱 5. Hardware & Mobile Workflow
-
-### **A. Tablet Informed Consent & Signature (`/tablet-signer`)**
-- Full-screen clinical participant review with bilingual/clear declaration clauses.
-- HTML5 responsive canvas with pressure/stylus support, instant clear/undo, and SHA-256 fingerprinting.
-- Dual-role signature workflow: Participant signs first, followed by Investigator attestation.
-
-### **B. Measurement Phone & Kubios HRV Bridge (`/macrodroid-manager`)**
-- Trigger the measurement phone via MacroDroid webhook when the participant enters the clinical room.
-- MacroDroid automatically opens the **Kubios HRV App** and initiates the 5-minute resting recording.
-- Automatically captures the result screen and transmits metrics + screenshot to `/api/hrv`.
-
-### **C. OCR Error Handling & Manual Fallback (`/hrv-studio`)**
-- **Automated Mode**: Instant regex extraction of HR, RMSSD, SDNN, LF/HF ratio, readiness percentage, and autonomic indices from Kubios screenshots.
-- **Redo OCR**: Single-click re-processing with adjustable image thresholding if lighting is sub-optimal.
-- **Manual Backup Mode**: In case of complete OCR failure or camera malfunction, researchers can enter metrics manually. Requires selecting a clinical justification reason (e.g. *Lens Glare*, *Abnormal Artifacts*) and entering investigator sign-off for audit integrity.
+### 3. Autonomic Balance & Cardiac Tone (Kubios HRV)
+- **Vagal Modulation (RMSSD):** Standard resting adult range `25 – 65 ms`.
+- **Sympathovagal Balance (LF/HF Ratio):** Optimal baseline `0.5 – 2.0`.
+- **Parasympathetic (PNS) & Sympathetic (SNS) Indices**: Autonomic balance scores derived from Kubios analysis.
 
 ---
 
-## 📊 6. Clinical Dossier & Export Formats (`/pdf-dossier`)
+## 📱 MacroDroid Android Automation
 
-The platform generates an official **2-Page Clinical Dossier**:
-- **Page 1 (Case Record Form)**: Study header, de-identified participant demographics, rMEQ chronotype classification, meal timing window, and vector signatures.
-- **Page 2 (Kubios Appendix)**: Embedded Kubios HRV report screenshot, autonomic readiness gauges, resting metrics table, and SHA-256 tamper-evident verification stamps.
+MacroDroid automates the Android phone used by the research team for biometric measurements and participant communication:
 
-### **Data Export Options**
-- **SPSS-Ready CSV**: Standard numeric and string variables for direct import into IBM SPSS Statistics.
-- **Full JSON Research Corpus**: Complete nested records including raw questionnaire answers and biometric timestamps.
-- **Immutable Audit Trail Log**: Hash-chained CSV of every clinical action, timestamp, and actor identity.
+### Macro 1: Kubios HRV Measurement Trigger
+- **Trigger:** Webhook (`https://trigger.macrodroid.com/<DEVICE_ID>/sts_hrv_measure`)
+- **Actions:**
+  1. Turn off screen lock & wake device.
+  2. Launch **Kubios HRV** app.
+  3. Speak announcement: *"Preparing participant [participant_id] for HRV measurement"*.
+
+### Macro 2: SMS Report Dispatch
+- **Trigger:** Webhook (`https://trigger.macrodroid.com/<DEVICE_ID>/sts_send_sms`)
+- **Action:** Send SMS
+  - **Destination:** `{url_param=mobile_number}`
+  - **Message Body:** `{url_param=brief_diagnosis}\nReport: {url_param=report_url}`
 
 ---
 
-## 🛠️ 7. Local Development & Testing
+## 📁 Repository Structure
 
-```bash
-# Install dependencies
-npm install
-
-# Start Vite local development server
-npm run dev
-
-# Run TypeScript typecheck
-npm run lint
-
-# Build production bundle
-npm run build
+```
+├── d1/
+│   └── schema.sql                  # Complete 9-table SQLite/D1 relational schema
+├── phase1-apps-script/
+│   └── Code.gs                     # Google Apps Script auto-form creator & HMAC push
+├── phase1-cloudflare-worker/
+│   ├── src/
+│   │   └── index.ts                # Edge Worker API router & HMAC verifier
+│   ├── package.json
+│   └── wrangler.jsonc              # Worker bindings, D1, R2, and environment vars
+├── src/
+│   ├── components/
+│   │   ├── Dashboard.tsx           # Main investigator operations control panel & CSV export
+│   │   ├── GoogleIntegrationHub.tsx# Google Form & Apps Script management UI
+│   │   ├── KubiosHrvStudio.tsx     # HRV OCR & manual biometric entry with Physical OK button
+│   │   ├── ManualParticipantFormModal.tsx # Direct backup entry form with investigator selector
+│   │   ├── ParticipantReportPortal.tsx # Participant diagnosis & dispatch view
+│   │   ├── PdfAppendixViewer.tsx   # 5-Page sealed official ICMR STS CRF dossier generator
+│   │   └── TabletSigner.tsx        # HTML5 dual digital signature pad for participant & investigator
+│   ├── data/
+│   │   ├── investigators.ts        # Investigator team configuration & realistic SVG signatures
+│   │   └── interpretationRules.ts  # Clinical cutoffs and message formatters
+│   ├── App.tsx                     # Main application container & state management
+│   ├── types.ts                    # Global TypeScript interfaces
+│   └── main.tsx                    # React 19 entry point
+├── setup.sh                        # Universal CLI orchestrator & deployment script
+└── README.md                       # Comprehensive system documentation
 ```
 
 ---
 
-## 📜 8. Ethical & Regulatory Compliance
-- **De-Identification**: Direct participant contact details are stored in logically separated tables and omitted from research exports.
-- **Right to Withdraw**: Includes an ethical withdrawal pipeline (`/api/withdrawal`) in compliance with ICMR Ethical Guidelines for Biomedical Research (2017) and Good Clinical Practice (GCP).
+## 📄 License & Ethical Compliance
+
+- **Institutional Ethics Committee Approval:** Protocol `IEC/STS/2026/042`
+- **Guidelines:** In accordance with ICMR Guidelines for Biomedical Research Involving Human Participants.
+- **Principal Investigator:** Harsh Narware | Department of Physiology
