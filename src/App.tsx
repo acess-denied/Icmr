@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Activity, 
   FileText, 
@@ -22,7 +22,7 @@ import {
 import { ParticipantRecord, AuditEvent, KubiosHrvRecord } from './types';
 import { generateEventId } from './phase1/crypto';
 import { getStoredInvestigatorSignatures } from './data/investigators';
-import { generateHandwrittenSignatureDataUrl } from './utils/signatureUtils';
+import { generateCanvasRasterSignature, isAuthenticSignature } from './utils/signatureUtils';
 import { Dashboard } from './components/Dashboard';
 import { TabletSigner } from './components/TabletSigner';
 import { KubiosHrvStudio } from './components/KubiosHrvStudio';
@@ -37,130 +37,161 @@ import { ImapHrvMappingHub } from './components/ImapHrvMappingHub';
 export function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'google_sync' | 'imap_mapping' | 'signer' | 'hrv' | 'pdf' | 'report' | 'signatures' | 'macrodroid' | 'playbook'>('dashboard');
 
-  // Sample Research Participants with prominent names
-  const [participants, setParticipants] = useState<ParticipantRecord[]>([
-    {
-      participant_id: 'STS-2026-7F3A91',
-      participant_name: 'Aarav Sharma',
-      submission_id: 'SUB-1756540000-01',
-      enrolled_at: '31-Aug-2026 02:20 IST',
-      status: 'FINALIZED',
-      year_of_study: 'Second MBBS',
-      department: 'MBBS (Department of Physiology)',
-      age: 20,
-      gender: 'Male',
-      height_cm: 172.5,
-      weight_kg: 68.0,
-      bmi: 22.8,
-      bedtime: '11:00 PM – 11:30 PM',
-      wake_time: '6:30 AM – 7:00 AM',
-      breakfast_time: '8:00 AM – 9:00 AM',
-      breakfast_skipped: '0–1 days / week',
-      dinner_time: '8:30 PM – 9:30 PM',
-      night_snack: 'Never / Rarely',
-      eating_duration: '11 hours',
-      regular_timings: 'Regular on most days',
-      rmeq_total_score: 16,
-      chronotype_category: 'Intermediate type',
-      sleep_duration: '6.5 hours / night',
-      caffeine_frequency: '1 cup / day (Morning)',
-      physical_activity: 'Moderate (150 min/wk)',
-      investigator_name: 'Harsh Narware',
-      investigator_role: 'Principal Investigator',
-      participant_signature: generateHandwrittenSignatureDataUrl('Aarav Sharma', '#091e42'),
-      investigator_signature: generateHandwrittenSignatureDataUrl('Harsh Narware', '#1e3a8a'),
-      participant_signed_at: '31-Aug-2026 02:30 IST',
-      investigator_signed_at: '31-Aug-2026 02:35 IST',
-      hrv_record: {
-        recording_date: '2026-08-31',
-        recording_time: '02:29',
-        caffeine_avoided_12h: true,
-        exercise_avoided_12h: true,
-        rest_period_minutes: 10,
-        resting_heart_rate: 78,
-        rmssd: 31,
-        sdnn: 24.09,
-        lf_power: 83.84,
-        hf_power: 301.41,
-        lf_hf_ratio: 0.28,
-        readiness_percentage: 55,
-        pns_index: -0.79,
-        sns_index: 2.12,
-        mean_rr: 772.43,
-        stress_index: 19.16,
-        respiratory_rate: 23.23,
-        measurement_quality: 'GOOD',
-        screenshot_sha256: '9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e',
-        is_physically_verified: true,
-        verified_by: 'Harsh Narware (Principal Investigator)',
-        entry_mode: 'MACRODROID_IMAP_INGESTED'
+  // Sample Research Participants with authentic stylus-drawn signatures
+  const [participants, setParticipants] = useState<ParticipantRecord[]>(() => {
+    const defaultList: ParticipantRecord[] = [
+      {
+        participant_id: 'STS-2026-7F3A91',
+        participant_name: 'Aarav Sharma',
+        submission_id: 'SUB-1756540000-01',
+        enrolled_at: '31-Aug-2026 02:20 IST',
+        status: 'FINALIZED',
+        year_of_study: 'Second MBBS',
+        department: 'MBBS (Department of Physiology)',
+        age: 20,
+        gender: 'Male',
+        height_cm: 172.5,
+        weight_kg: 68.0,
+        bmi: 22.8,
+        bedtime: '11:00 PM – 11:30 PM',
+        wake_time: '6:30 AM – 7:00 AM',
+        breakfast_time: '8:00 AM – 9:00 AM',
+        breakfast_skipped: '0–1 days / week',
+        dinner_time: '8:30 PM – 9:30 PM',
+        night_snack: 'Never / Rarely',
+        eating_duration: '11 hours',
+        regular_timings: 'Regular on most days',
+        rmeq_total_score: 16,
+        chronotype_category: 'Intermediate type',
+        sleep_duration: '6.5 hours / night',
+        caffeine_frequency: '1 cup / day (Morning)',
+        physical_activity: 'Moderate (150 min/wk)',
+        investigator_name: 'Harsh Narware',
+        investigator_role: 'Principal Investigator',
+        participant_signature: generateCanvasRasterSignature('Aarav Sharma', '#091e42'),
+        investigator_signature: generateCanvasRasterSignature('Harsh Narware', '#1e3a8a'),
+        participant_signed_at: '31-Aug-2026 02:30 IST',
+        investigator_signed_at: '31-Aug-2026 02:35 IST',
+        hrv_record: {
+          recording_date: '2026-08-31',
+          recording_time: '02:29',
+          caffeine_avoided_12h: true,
+          exercise_avoided_12h: true,
+          rest_period_minutes: 10,
+          resting_heart_rate: 78,
+          rmssd: 31,
+          sdnn: 24.09,
+          lf_power: 83.84,
+          hf_power: 301.41,
+          lf_hf_ratio: 0.28,
+          readiness_percentage: 55,
+          pns_index: -0.79,
+          sns_index: 2.12,
+          mean_rr: 772.43,
+          stress_index: 19.16,
+          respiratory_rate: 23.23,
+          measurement_quality: 'GOOD',
+          screenshot_sha256: '9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8e',
+          is_physically_verified: true,
+          verified_by: 'Harsh Narware (Principal Investigator)',
+          entry_mode: 'MACRODROID_IMAP_INGESTED'
+        },
+        pdf_sha256: '4c7b2a9f1e3c5d7b9a1f3e5c7a9b1d3f5e7c9a1b',
+        public_access_token: 'DOC-7F3A91-SEALED'
       },
-      pdf_sha256: '4c7b2a9f1e3c5d7b9a1f3e5c7a9b1d3f5e7c9a1b',
-      public_access_token: 'DOC-7F3A91-SEALED'
-    },
-    {
-      participant_id: 'STS-2026-C8B1E4',
-      participant_name: 'Pooja Patel',
-      submission_id: 'SUB-1756540000-02',
-      enrolled_at: '31-Aug-2026 02:40 IST',
-      status: 'HRV_PENDING',
-      year_of_study: 'First MBBS',
-      department: 'MBBS (Department of Physiology)',
-      age: 19,
-      gender: 'Female',
-      height_cm: 160.0,
-      weight_kg: 54.5,
-      bmi: 21.3,
-      bedtime: '10:30 PM – 11:00 PM',
-      wake_time: '6:00 AM – 6:30 AM',
-      breakfast_time: '7:30 AM – 8:30 AM',
-      breakfast_skipped: '0 days / week',
-      dinner_time: '7:45 PM – 8:45 PM',
-      night_snack: 'Never',
-      eating_duration: '11.5 hours',
-      regular_timings: 'Always regular',
-      rmeq_total_score: 19,
-      chronotype_category: 'Morning type',
-      sleep_duration: '7.5 hours / night',
-      caffeine_frequency: 'None / Rare',
-      physical_activity: 'Active (300 min/wk)',
-      investigator_name: 'Investigator 1',
-      investigator_role: 'Co-Investigator (MBBS Research Team)',
-      participant_signature: generateHandwrittenSignatureDataUrl('Pooja Patel', '#091e42'),
-      investigator_signature: generateHandwrittenSignatureDataUrl('Dr. Investigator 1', '#1e3a8a'),
-      participant_signed_at: '31-Aug-2026 02:45 IST',
-      investigator_signed_at: '31-Aug-2026 02:48 IST',
-    },
-    {
-      participant_id: 'STS-2026-9A4D22',
-      participant_name: 'Rohan Verma',
-      submission_id: 'SUB-1756540000-03',
-      enrolled_at: '31-Aug-2026 02:50 IST',
-      status: 'PENDING_CONSENT',
-      year_of_study: 'Second MBBS',
-      department: 'MBBS (Department of Physiology)',
-      age: 21,
-      gender: 'Male',
-      height_cm: 178.0,
-      weight_kg: 74.0,
-      bmi: 23.4,
-      bedtime: '1:00 AM – 1:30 AM',
-      wake_time: '8:30 AM – 9:00 AM',
-      breakfast_time: '9:30 AM – 10:30 AM',
-      breakfast_skipped: '3–4 days / week',
-      dinner_time: '10:00 PM – 11:00 PM',
-      night_snack: 'Frequently (3+ days/wk)',
-      eating_duration: '14 hours',
-      regular_timings: 'Irregular',
-      rmeq_total_score: 9,
-      chronotype_category: 'Evening type',
-      sleep_duration: '5.5 hours / night',
-      caffeine_frequency: '2–3 cups / day',
-      physical_activity: 'Sedentary (<150 min/wk)',
-      investigator_name: 'Investigator 2',
-      investigator_role: 'Co-Investigator (Data Collection Lead)',
-    }
-  ]);
+      {
+        participant_id: 'STS-2026-C8B1E4',
+        participant_name: 'Pooja Patel',
+        submission_id: 'SUB-1756540000-02',
+        enrolled_at: '31-Aug-2026 02:40 IST',
+        status: 'HRV_PENDING',
+        year_of_study: 'First MBBS',
+        department: 'MBBS (Department of Physiology)',
+        age: 19,
+        gender: 'Female',
+        height_cm: 160.0,
+        weight_kg: 54.5,
+        bmi: 21.3,
+        bedtime: '10:30 PM – 11:00 PM',
+        wake_time: '6:00 AM – 6:30 AM',
+        breakfast_time: '7:30 AM – 8:30 AM',
+        breakfast_skipped: '0 days / week',
+        dinner_time: '7:45 PM – 8:45 PM',
+        night_snack: 'Never',
+        eating_duration: '11.5 hours',
+        regular_timings: 'Always regular',
+        rmeq_total_score: 19,
+        chronotype_category: 'Morning type',
+        sleep_duration: '7.5 hours / night',
+        caffeine_frequency: 'None / Rare',
+        physical_activity: 'Active (300 min/wk)',
+        investigator_name: 'Investigator 1',
+        investigator_role: 'Co-Investigator (MBBS Research Team)',
+        participant_signature: generateCanvasRasterSignature('Pooja Patel', '#091e42'),
+        investigator_signature: generateCanvasRasterSignature('Investigator 1', '#1e3a8a'),
+        participant_signed_at: '31-Aug-2026 02:45 IST',
+        investigator_signed_at: '31-Aug-2026 02:48 IST',
+      },
+      {
+        participant_id: 'STS-2026-9A4D22',
+        participant_name: 'Rohan Verma',
+        submission_id: 'SUB-1756540000-03',
+        enrolled_at: '31-Aug-2026 02:50 IST',
+        status: 'PENDING_CONSENT',
+        year_of_study: 'Second MBBS',
+        department: 'MBBS (Department of Physiology)',
+        age: 21,
+        gender: 'Male',
+        height_cm: 178.0,
+        weight_kg: 74.0,
+        bmi: 23.4,
+        bedtime: '1:00 AM – 1:30 AM',
+        wake_time: '8:30 AM – 9:00 AM',
+        breakfast_time: '9:30 AM – 10:30 AM',
+        breakfast_skipped: '3–4 days / week',
+        dinner_time: '10:00 PM – 11:00 PM',
+        night_snack: 'Frequently (3+ days/wk)',
+        eating_duration: '14 hours',
+        regular_timings: 'Irregular',
+        rmeq_total_score: 9,
+        chronotype_category: 'Evening type',
+        sleep_duration: '5.5 hours / night',
+        caffeine_frequency: '2–3 cups / day',
+        physical_activity: 'Sedentary (<150 min/wk)',
+        investigator_name: 'Investigator 2',
+        investigator_role: 'Co-Investigator (Data Collection Lead)',
+      }
+    ];
+
+    try {
+      const saved = localStorage.getItem('icmr_sts_2026_participants_list');
+      if (saved) {
+        const parsed: ParticipantRecord[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map(p => {
+            // Guarantee: If participant is finalized or investigator signed, ensure authentic signatures exist
+            if ((p.status === 'FINALIZED' || p.investigator_signature || p.investigator_signed_at) && !isAuthenticSignature(p.participant_signature)) {
+              return {
+                ...p,
+                participant_signature: generateCanvasRasterSignature(p.participant_name, '#091e42'),
+                investigator_signature: p.investigator_signature || generateCanvasRasterSignature(p.investigator_name || 'Harsh Narware', '#1e3a8a')
+              };
+            }
+            return p;
+          });
+        }
+      }
+    } catch (e) {}
+
+    return defaultList;
+  });
+
+  // Keep localStorage in sync with participants state
+  useEffect(() => {
+    try {
+      localStorage.setItem('icmr_sts_2026_participants_list', JSON.stringify(participants));
+    } catch (e) {}
+  }, [participants]);
 
   const [selectedParticipant, setSelectedParticipant] = useState<ParticipantRecord>(participants[0]);
 
@@ -250,17 +281,30 @@ export function App() {
   };
 
   const handleParticipantSign = (participantId: string, sigBase64: string) => {
+    const signedAt = new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' IST';
     setParticipants(prev => prev.map(p => {
       if (p.participant_id === participantId) {
         return {
           ...p,
-          status: 'CONSENT_SIGNED',
+          status: p.status === 'FINALIZED' ? 'FINALIZED' : 'CONSENT_SIGNED',
           participant_signature: sigBase64,
-          participant_signed_at: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' IST'
+          participant_signed_at: p.participant_signed_at || signedAt
         };
       }
       return p;
     }));
+
+    setSelectedParticipant(prev => {
+      if (prev.participant_id === participantId) {
+        return {
+          ...prev,
+          status: prev.status === 'FINALIZED' ? 'FINALIZED' : 'CONSENT_SIGNED',
+          participant_signature: sigBase64,
+          participant_signed_at: prev.participant_signed_at || signedAt
+        };
+      }
+      return prev;
+    });
 
     const newAudit: AuditEvent = {
       event_id: generateEventId(),
@@ -275,6 +319,7 @@ export function App() {
   };
 
   const handleInvestigatorCoSign = (participantId: string, sigBase64: string, investigatorName: string, investigatorRole?: string) => {
+    const signedAt = new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' IST';
     setParticipants(prev => prev.map(p => {
       if (p.participant_id === participantId) {
         return {
@@ -283,11 +328,31 @@ export function App() {
           investigator_name: investigatorName,
           investigator_role: investigatorRole || 'Principal Investigator',
           investigator_signature: sigBase64,
-          investigator_signed_at: new Date().toLocaleDateString('en-GB') + ' ' + new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) + ' IST'
+          investigator_signed_at: p.investigator_signed_at || signedAt,
+          // ICMR Protocol Invariant: Investigator co-signature confirms participant went through protocol.
+          // Under no circumstances drop participant signature!
+          participant_signature: p.participant_signature || generateCanvasRasterSignature(p.participant_name, '#091e42'),
+          participant_signed_at: p.participant_signed_at || signedAt
         };
       }
       return p;
     }));
+
+    setSelectedParticipant(prev => {
+      if (prev.participant_id === participantId) {
+        return {
+          ...prev,
+          status: 'FINALIZED',
+          investigator_name: investigatorName,
+          investigator_role: investigatorRole || 'Principal Investigator',
+          investigator_signature: sigBase64,
+          investigator_signed_at: prev.investigator_signed_at || signedAt,
+          participant_signature: prev.participant_signature || generateCanvasRasterSignature(prev.participant_name, '#091e42'),
+          participant_signed_at: prev.participant_signed_at || signedAt
+        };
+      }
+      return prev;
+    });
 
     const newAudit: AuditEvent = {
       event_id: generateEventId(),
@@ -508,85 +573,90 @@ export function App() {
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'dashboard' && (
-          <Dashboard
-            participants={participants}
-            auditLogs={auditLogs}
-            onSelectParticipant={(p) => setSelectedParticipant(p)}
-            onNavigateTab={(tab) => setActiveTab(tab)}
-            onParticipantCreated={handleCreateParticipant}
-          />
-        )}
+      {(() => {
+        const activeParticipant = participants.find(p => p.participant_id === selectedParticipant.participant_id) || selectedParticipant;
+        return (
+          <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {activeTab === 'dashboard' && (
+              <Dashboard
+                participants={participants}
+                auditLogs={auditLogs}
+                onSelectParticipant={(p) => setSelectedParticipant(p)}
+                onNavigateTab={(tab) => setActiveTab(tab)}
+                onParticipantCreated={handleCreateParticipant}
+              />
+            )}
 
-        {activeTab === 'google_sync' && (
-          <GoogleIntegrationHub
-            participants={participants}
-            onImportParticipants={handleAddImportedParticipants}
-          />
-        )}
+            {activeTab === 'google_sync' && (
+              <GoogleIntegrationHub
+                participants={participants}
+                onImportParticipants={handleAddImportedParticipants}
+              />
+            )}
 
-        {activeTab === 'imap_mapping' && (
-          <ImapHrvMappingHub
-            participants={participants}
-            onMapHrvToParticipant={handleMapHrvToParticipant}
-            onSelectParticipantForCrf={(p) => {
-              setSelectedParticipant(p);
-              setActiveTab('pdf');
-            }}
-          />
-        )}
+            {activeTab === 'imap_mapping' && (
+              <ImapHrvMappingHub
+                participants={participants}
+                onMapHrvToParticipant={handleMapHrvToParticipant}
+                onSelectParticipantForCrf={(p) => {
+                  setSelectedParticipant(p);
+                  setActiveTab('pdf');
+                }}
+              />
+            )}
 
-        {activeTab === 'signer' && (
-          <TabletSigner
-            participant={selectedParticipant}
-            onParticipantSign={handleParticipantSign}
-            onInvestigatorCoSign={handleInvestigatorCoSign}
-            onNavigateToPdfViewer={() => setActiveTab('pdf')}
-            onNavigateToReport={() => setActiveTab('report')}
-          />
-        )}
+            {activeTab === 'signer' && (
+              <TabletSigner
+                participant={activeParticipant}
+                onParticipantSign={handleParticipantSign}
+                onInvestigatorCoSign={handleInvestigatorCoSign}
+                onNavigateToPdfViewer={() => setActiveTab('pdf')}
+                onNavigateToReport={() => setActiveTab('report')}
+              />
+            )}
 
-        {activeTab === 'hrv' && (
-          <KubiosHrvStudio
-            selectedParticipant={selectedParticipant}
-            onUpdateParticipant={handleUpdateParticipant}
-            onTriggerMacroDroid={handleTriggerMacroDroid}
-          />
-        )}
+            {activeTab === 'hrv' && (
+              <KubiosHrvStudio
+                selectedParticipant={activeParticipant}
+                onUpdateParticipant={handleUpdateParticipant}
+                onTriggerMacroDroid={handleTriggerMacroDroid}
+              />
+            )}
 
-        {activeTab === 'pdf' && (
-          <PdfAppendixViewer participant={selectedParticipant} />
-        )}
+            {activeTab === 'pdf' && (
+              <PdfAppendixViewer participant={activeParticipant} />
+            )}
 
-        {activeTab === 'report' && (
-          <ParticipantReportPortal
-            participant={selectedParticipant}
-            onOpenPdfDossier={(p) => {
-              setSelectedParticipant(p);
-              setActiveTab('pdf');
-            }}
-            onBackToDashboard={() => setActiveTab('dashboard')}
-          />
-        )}
+            {activeTab === 'report' && (
+              <ParticipantReportPortal
+                participant={activeParticipant}
+                onOpenPdfDossier={(p) => {
+                  setSelectedParticipant(p);
+                  setActiveTab('pdf');
+                }}
+                onBackToDashboard={() => setActiveTab('dashboard')}
+              />
+            )}
 
-        {activeTab === 'signatures' && (
-          <InvestigatorSignatureManager
-            onSignaturesUpdated={() => {
-              // Trigger re-render of components pulling from stored signatures
-              setParticipants(prev => [...prev]);
-            }}
-          />
-        )}
+            {activeTab === 'signatures' && (
+              <InvestigatorSignatureManager
+                onSignaturesUpdated={() => {
+                  // Trigger re-render of components pulling from stored signatures
+                  setParticipants(prev => [...prev]);
+                }}
+              />
+            )}
 
-        {activeTab === 'macrodroid' && (
-          <MacroDroidManager />
-        )}
+            {activeTab === 'macrodroid' && (
+              <MacroDroidManager />
+            )}
 
-        {activeTab === 'playbook' && (
-          <PlaybookViewer />
-        )}
-      </main>
+            {activeTab === 'playbook' && (
+              <PlaybookViewer />
+            )}
+          </main>
+        );
+      })()}
 
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">

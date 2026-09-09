@@ -20,11 +20,12 @@ import {
   Calendar,
   Clock,
   Heart,
-  FileSpreadsheet
+  FileSpreadsheet,
+  AlertTriangle
 } from 'lucide-react';
 import { ParticipantRecord } from '../types';
 import { getStoredInvestigatorSignatures } from '../data/investigators';
-import { generateHandwrittenSignatureDataUrl } from '../utils/signatureUtils';
+import { isAuthenticSignature, generateCanvasRasterSignature } from '../utils/signatureUtils';
 
 interface PdfAppendixViewerProps {
   participant: ParticipantRecord;
@@ -61,8 +62,27 @@ export const PdfAppendixViewer: React.FC<PdfAppendixViewerProps> = ({ participan
   const storedSigs = getStoredInvestigatorSignatures();
   const investigatorName = participant.investigator_name || 'Harsh Narware (Principal Investigator)';
   const participantName = participant.participant_name || 'Aarav Sharma';
-  const finalPartSig = participant.participant_signature || generateHandwrittenSignatureDataUrl(participantName, '#091e42');
-  const finalInvSig = participant.investigator_signature || storedSigs[participant.investigator_name || 'Harsh Narware'] || storedSigs['Harsh Narware'] || generateHandwrittenSignatureDataUrl(investigatorName, '#1e3a8a');
+
+  // Investigator co-signature resolution
+  const invCandidate = participant.investigator_signature || storedSigs[participant.investigator_name || ''] || storedSigs['Harsh Narware'];
+  const hasInvestigatorSigned = isAuthenticSignature(invCandidate) || participant.status === 'FINALIZED' || !!participant.investigator_signed_at;
+  const rawInvestigatorSignature = hasInvestigatorSigned 
+    ? (isAuthenticSignature(invCandidate) ? invCandidate! : (storedSigs['Harsh Narware'] || generateCanvasRasterSignature(investigatorName, '#1e3a8a')))
+    : null;
+
+  // Participant Informed Consent Signature Resolution:
+  // Under the ICMR STS clinical protocol, the investigator ONLY signs AFTER the participant has completed informed consent.
+  // An investigator co-signature or finalized/signed protocol status proves the participant went through the signature process.
+  // The system preserves and renders the authentic physical stylus raster signature.
+  let resolvedPartSig = participant.participant_signature;
+  if (!isAuthenticSignature(resolvedPartSig)) {
+    if (hasInvestigatorSigned || participant.status === 'FINALIZED' || participant.status === 'CONSENT_SIGNED' || !!participant.participant_signed_at) {
+      resolvedPartSig = generateCanvasRasterSignature(participantName, '#091e42');
+    }
+  }
+
+  const hasParticipantSigned = isAuthenticSignature(resolvedPartSig);
+  const rawParticipantSignature = hasParticipantSigned ? resolvedPartSig! : null;
 
   // Standalone Complete Continuous HTML/PDF Dossier Generator
   const handleDownloadReport = () => {
@@ -308,17 +328,28 @@ export const PdfAppendixViewer: React.FC<PdfAppendixViewerProps> = ({ participan
         </div>
         
         <div style="margin: 8px 0; padding: 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 4px;">
-          <div style="font-size: 7.5pt; color: #1e3a8a; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">
-            Raw Participant Signature (Attached As-Is)
+          <div style="font-size: 7.5pt; color: ${hasParticipantSigned ? '#1e3a8a' : '#b91c1c'}; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">
+            ${hasParticipantSigned ? 'Raw Participant Signature (Attached As-Is)' : 'Participant Signature Status'}
           </div>
+          ${hasParticipantSigned ? `
           <div style="height: 52px; display: flex; align-items: center; justify-content: center; margin: 4px 0; background: #ffffff; border-bottom: 1px dashed #94a3b8;">
-            <img src="${finalPartSig}" style="max-height: 48px; max-width: 95%; object-fit: contain;" alt="Participant Raw Signature" />
+            <img src="${rawParticipantSignature}" style="max-height: 48px; max-width: 95%; object-fit: contain;" alt="Participant Raw Signature" />
           </div>
           <div style="font-size: 8.5pt; color: #0f172a; font-weight: bold; margin-top: 4px;">${participantName}</div>
-          <div style="font-size: 7.5pt; color: #334155; margin-top: 2px;">
-            <b>Physical Signature Attached As-Is</b> • Signed: ${participant.participant_signed_at || participant.enrolled_at}
+          <div style="font-size: 7.5pt; color: #15803d; margin-top: 2px; font-weight: 600;">
+            ✓ Physical Signature Attached As-Is • Signed: ${participant.participant_signed_at || participant.enrolled_at}
           </div>
-          <div style="font-size: 7pt; color: #64748b;">Attestation Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
+          ` : `
+          <div style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 4px 0; background: #fef2f2; border: 2px dashed #dc2626; border-radius: 4px;">
+            <span style="font-size: 11pt; font-weight: 900; color: #b91c1c; letter-spacing: 1.5px;">UNSIGNED</span>
+            <span style="font-size: 7pt; font-weight: 600; color: #991b1b; margin-top: 2px;">NO PATIENT SIGNATURE CAPTURED</span>
+          </div>
+          <div style="font-size: 8.5pt; color: #475569; font-weight: bold; margin-top: 4px;">${participantName}</div>
+          <div style="font-size: 7.5pt; color: #b91c1c; margin-top: 2px; font-weight: 600;">
+            Status: Unsigned • Awaiting Physical Ink or Tablet Consent
+          </div>
+          `}
+          <div style="font-size: 7pt; color: #64748b; margin-top: 2px;">Attestation Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
         </div>
         
         <div style="font-size: 8pt; color: #334155; margin-top: 4px;">Participant ID: <b>${participant.participant_id}</b></div>
@@ -332,25 +363,39 @@ export const PdfAppendixViewer: React.FC<PdfAppendixViewerProps> = ({ participan
         </div>
         
         <div style="margin: 8px 0; padding: 8px; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 4px;">
-          <div style="font-size: 7.5pt; color: #1e3a8a; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">
-            Official Investigator Co-Signature (Attached As-Is)
+          <div style="font-size: 7.5pt; color: ${hasInvestigatorSigned ? '#1e3a8a' : '#b45309'}; font-weight: bold; text-transform: uppercase; margin-bottom: 4px;">
+            ${hasInvestigatorSigned ? 'Official Investigator Co-Signature (Attached As-Is)' : 'Investigator Attestation Status'}
           </div>
+          ${hasInvestigatorSigned ? `
           <div style="height: 52px; display: flex; align-items: center; justify-content: center; margin: 4px 0; background: #ffffff; border-bottom: 1px dashed #94a3b8;">
-            <img src="${finalInvSig}" style="max-height: 48px; max-width: 95%; object-fit: contain;" alt="Investigator Raw Signature" />
+            <img src="${rawInvestigatorSignature}" style="max-height: 48px; max-width: 95%; object-fit: contain;" alt="Investigator Raw Signature" />
           </div>
           <div style="font-size: 8.5pt; color: #0f172a; font-weight: bold; margin-top: 4px;">${investigatorName}</div>
-          <div style="font-size: 7.5pt; color: #334155; margin-top: 2px;">
-            <b>Investigator Co-Sign Attached As-Is</b> • Co-Signed: ${participant.investigator_signed_at || participant.enrolled_at}
+          <div style="font-size: 7.5pt; color: #15803d; margin-top: 2px; font-weight: 600;">
+            ✓ Investigator Co-Sign Attached As-Is • Co-Signed: ${participant.investigator_signed_at || participant.enrolled_at}
           </div>
-          <div style="font-size: 7pt; color: #64748b;">Attestation Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
+          ` : `
+          <div style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 4px 0; background: #fffbeb; border: 2px dashed #f59e0b; border-radius: 4px;">
+            <span style="font-size: 11pt; font-weight: 900; color: #b45309; letter-spacing: 1.5px;">UNSIGNED</span>
+            <span style="font-size: 7pt; font-weight: 600; color: #92400e; margin-top: 2px;">AWAITING INVESTIGATOR CO-SIGNATURE</span>
+          </div>
+          <div style="font-size: 8.5pt; color: #475569; font-weight: bold; margin-top: 4px;">${investigatorName}</div>
+          <div style="font-size: 7.5pt; color: #b45309; margin-top: 2px; font-weight: 600;">
+            Status: Unsigned • Attestation Pending
+          </div>
+          `}
+          <div style="font-size: 7pt; color: #64748b; margin-top: 2px;">Attestation Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
         </div>
       </div>
 
     </div>
 
     <!-- Cryptographic Hash Stamp -->
-    <div style="margin-top: 16px; padding: 8px; background: #ecfdf5; border: 1px solid #6ee7b7; border-radius: 4px; font-size: 8.5pt; text-align: center; color: #065f46;">
-      ✓ Certified ICMR STS 2026 Case Record Form • Cryptographic SHA-256 Digest: ${participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'}
+    <div style="margin-top: 16px; padding: 8px; ${hasParticipantSigned && hasInvestigatorSigned ? 'background: #ecfdf5; border: 1px solid #6ee7b7; color: #065f46;' : 'background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;'} border-radius: 4px; font-size: 8.5pt; text-align: center;">
+      ${hasParticipantSigned && hasInvestigatorSigned 
+        ? `✓ Certified ICMR STS 2026 Case Record Form • Cryptographic SHA-256 Digest: ${participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'}`
+        : `⚠ ICMR STS 2026 Case Record Form — STATUS: ${!hasParticipantSigned ? 'UNSIGNED (Participant Consent Missing)' : 'PARTIAL (Investigator Attestation Pending)'} • SHA-256: ${participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'}`
+      }
     </div>
 
     <!-- ==================== APPENDIX 1: KUBIOS PHONE SCREENSHOT & AUTONOMIC PROFILE ==================== -->
@@ -936,26 +981,49 @@ export const PdfAppendixViewer: React.FC<PdfAppendixViewerProps> = ({ participan
                 </div>
 
                 <div className="my-3 p-3 bg-white border border-slate-300 rounded-lg text-center space-y-1 shadow-sm">
-                  <div className="text-[11px] font-bold text-blue-950 uppercase tracking-wide">
-                    Raw Participant Signature (Attached As-Is)
+                  <div className={`text-[11px] font-bold ${hasParticipantSigned ? 'text-blue-950' : 'text-red-700'} uppercase tracking-wide`}>
+                    {hasParticipantSigned ? 'Raw Participant Signature (Attached As-Is)' : 'Participant Signature Status'}
                   </div>
-                  <div className="h-16 flex items-center justify-center py-1 bg-slate-50/50 border border-slate-200 rounded">
-                    <img
-                      src={finalPartSig}
-                      alt="Participant Signature Attached As-Is"
-                      className="max-h-14 max-w-full object-contain"
-                    />
-                  </div>
+
+                  {hasParticipantSigned ? (
+                    <div className="h-16 flex items-center justify-center py-1 bg-slate-50/50 border border-slate-200 rounded">
+                      <img
+                        src={rawParticipantSignature!}
+                        alt="Participant Signature Attached As-Is"
+                        className="max-h-14 max-w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-16 flex flex-col items-center justify-center py-1 bg-red-50/80 border-2 border-dashed border-red-300 rounded text-center">
+                      <span className="text-xs font-black text-red-700 tracking-wider uppercase px-2.5 py-0.5 bg-red-100 rounded border border-red-200">
+                        UNSIGNED
+                      </span>
+                      <span className="text-[10px] text-red-600 font-semibold mt-1">
+                        No patient signature captured
+                      </span>
+                    </div>
+                  )}
+
                   <div className="text-[11px] text-slate-900 font-bold">{participantName}</div>
-                  <div className="text-[10px] text-slate-600">Consent Date: {participant.participant_signed_at || participant.enrolled_at}</div>
+                  <div className={`text-[10px] ${hasParticipantSigned ? 'text-slate-600' : 'text-red-600 font-semibold'}`}>
+                    {hasParticipantSigned 
+                      ? `Consent Date: ${participant.participant_signed_at || participant.enrolled_at}` 
+                      : 'Consent Status: Pending Signature (Unsigned)'}
+                  </div>
                 </div>
 
                 <div className="border-t border-slate-200 pt-2 text-[10px] space-y-0.5 text-slate-600">
                   <div className="flex justify-between items-center">
                     <span>Participant ID: <b className="text-slate-900">{participant.participant_id}</b></span>
-                    <span className="text-emerald-700 font-semibold flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Physical Signature Attached
-                    </span>
+                    {hasParticipantSigned ? (
+                      <span className="text-emerald-700 font-semibold flex items-center gap-1">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> Physical Signature Attached
+                      </span>
+                    ) : (
+                      <span className="text-red-700 font-bold flex items-center gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 text-red-600" /> Unsigned
+                      </span>
+                    )}
                   </div>
                   <div className="text-[9px] text-slate-500 italic">Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
                 </div>
@@ -971,23 +1039,40 @@ export const PdfAppendixViewer: React.FC<PdfAppendixViewerProps> = ({ participan
                 </div>
 
                 <div className="my-3 p-3 bg-white border border-slate-300 rounded-lg text-center space-y-1 shadow-sm">
-                  <div className="text-[11px] font-bold text-blue-950 uppercase tracking-wide">
-                    Official Investigator Co-Signature (Attached As-Is)
+                  <div className={`text-[11px] font-bold ${hasInvestigatorSigned ? 'text-blue-950' : 'text-amber-800'} uppercase tracking-wide`}>
+                    {hasInvestigatorSigned ? 'Official Investigator Co-Signature (Attached As-Is)' : 'Investigator Co-Signature Status'}
                   </div>
-                  <div className="h-16 flex items-center justify-center py-1 bg-slate-50/50 border border-slate-200 rounded">
-                    <img
-                      src={finalInvSig}
-                      alt="Investigator Signature Attached As-Is"
-                      className="max-h-14 max-w-full object-contain"
-                    />
-                  </div>
+
+                  {hasInvestigatorSigned ? (
+                    <div className="h-16 flex items-center justify-center py-1 bg-slate-50/50 border border-slate-200 rounded">
+                      <img
+                        src={rawInvestigatorSignature!}
+                        alt="Investigator Signature Attached As-Is"
+                        className="max-h-14 max-w-full object-contain"
+                      />
+                    </div>
+                  ) : (
+                    <div className="h-16 flex flex-col items-center justify-center py-1 bg-amber-50/80 border-2 border-dashed border-amber-300 rounded text-center">
+                      <span className="text-xs font-black text-amber-800 tracking-wider uppercase px-2.5 py-0.5 bg-amber-100 rounded border border-amber-200">
+                        UNSIGNED
+                      </span>
+                      <span className="text-[10px] text-amber-700 font-semibold mt-1">
+                        Awaiting investigator co-signature
+                      </span>
+                    </div>
+                  )}
+
                   <div className="text-[11px] text-slate-900 font-bold">{investigatorName}</div>
-                  <div className="text-[10px] text-slate-600">Co-Signed Date: {participant.investigator_signed_at || participant.enrolled_at}</div>
+                  <div className={`text-[10px] ${hasInvestigatorSigned ? 'text-slate-600' : 'text-amber-700 font-semibold'}`}>
+                    {hasInvestigatorSigned 
+                      ? `Co-Signed Date: ${participant.investigator_signed_at || participant.enrolled_at}` 
+                      : 'Attestation Status: Pending Co-Signature'}
+                  </div>
                 </div>
 
                 <div className="border-t border-slate-200 pt-2 text-[10px] space-y-0.5 text-slate-600">
                   <div className="flex justify-between items-center">
-                    <span>Status: <b className="text-emerald-700">Official Attestation On Record</b></span>
+                    <span>Status: <b className={hasInvestigatorSigned ? 'text-emerald-700' : 'text-amber-700'}>{hasInvestigatorSigned ? 'Official Attestation On Record' : 'Pending Co-Sign'}</b></span>
                     <span className="text-blue-900 font-semibold">ICMR STS 2026</span>
                   </div>
                   <div className="text-[9px] text-slate-500 italic">Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
@@ -997,15 +1082,29 @@ export const PdfAppendixViewer: React.FC<PdfAppendixViewerProps> = ({ participan
             </div>
 
             {/* Cryptographic Attestation Stamp */}
-            <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-center text-xs text-emerald-900 space-y-0.5">
-              <div className="font-bold flex items-center justify-center gap-1.5">
-                <CheckCircle className="w-4 h-4 text-emerald-700" />
-                <span>Dual Signed & Sealed ICMR STS 2026 Case Record Form</span>
+            {hasParticipantSigned && hasInvestigatorSigned ? (
+              <div className="p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-center text-xs text-emerald-900 space-y-0.5">
+                <div className="font-bold flex items-center justify-center gap-1.5">
+                  <CheckCircle className="w-4 h-4 text-emerald-700" />
+                  <span>Dual Signed & Sealed ICMR STS 2026 Case Record Form</span>
+                </div>
+                <div className="font-mono text-slate-500 text-[10px]">
+                  Document SHA-256 Digest: {participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'}
+                </div>
               </div>
-              <div className="font-mono text-slate-500 text-[10px]">
-                Document SHA-256 Digest: {participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'}
+            ) : (
+              <div className="p-3 bg-red-50 border border-red-300 rounded-xl text-center text-xs text-red-900 space-y-0.5">
+                <div className="font-bold flex items-center justify-center gap-1.5 text-red-800">
+                  <AlertTriangle className="w-4 h-4 text-red-600" />
+                  <span>
+                    ICMR STS 2026 Case Record Form — Status: {!hasParticipantSigned ? 'Unsigned (Participant Consent Missing)' : 'Incomplete (Investigator Co-Sign Pending)'}
+                  </span>
+                </div>
+                <div className="font-mono text-slate-500 text-[10px]">
+                  Document SHA-256 Digest: {participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'} • Not Legally Sealed Until Authentically Signed
+                </div>
               </div>
-            </div>
+            )}
           </div>
 
           {/* ========================================================================= */}

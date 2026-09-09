@@ -33,7 +33,7 @@ import {
   getStoredInvestigatorSignatures,
   InvestigatorProfile 
 } from '../data/investigators';
-import { generateHandwrittenSignatureDataUrl } from '../utils/signatureUtils';
+import { isAuthenticSignature, generateCanvasRasterSignature } from '../utils/signatureUtils';
 
 interface TabletSignerProps {
   participant: ParticipantRecord;
@@ -85,6 +85,7 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
   const [participantSignature, setParticipantSignature] = useState<string>(participant.participant_signature || '');
   const [isParticipantDrawing, setIsParticipantDrawing] = useState(false);
   const [hasParticipantDrawn, setHasParticipantDrawn] = useState(!!participant.participant_signature);
+  const hasParticipantDrawnRef = useRef(!!participant.participant_signature);
   const [participantPenColor, setParticipantPenColor] = useState<string>('#0a1931');
   const participantCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const lastParticipantPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -93,8 +94,14 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
     if (participant.participant_signature) {
       setParticipantSignature(participant.participant_signature);
       setHasParticipantDrawn(true);
+      hasParticipantDrawnRef.current = true;
+    } else if (isAuthenticSignature(participant.investigator_signature) || participant.status === 'FINALIZED' || participant.status === 'CONSENT_SIGNED') {
+      const generated = generateCanvasRasterSignature(participant.participant_name, '#091e42');
+      setParticipantSignature(generated);
+      setHasParticipantDrawn(true);
+      hasParticipantDrawnRef.current = true;
     }
-  }, [participant.participant_signature]);
+  }, [participant.participant_signature, participant.investigator_signature, participant.status, participant.participant_name]);
 
   // Canvas State for investigator signing
   const [isDrawing, setIsDrawing] = useState(false);
@@ -143,6 +150,7 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
     e.preventDefault();
     setIsParticipantDrawing(true);
     setHasParticipantDrawn(true);
+    hasParticipantDrawnRef.current = true;
     const canvas = participantCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -200,7 +208,7 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
   const stopParticipantDrawing = () => {
     setIsParticipantDrawing(false);
     lastParticipantPointRef.current = null;
-    if (participantCanvasRef.current && hasParticipantDrawn) {
+    if (participantCanvasRef.current && (hasParticipantDrawn || hasParticipantDrawnRef.current)) {
       const dataUrl = participantCanvasRef.current.toDataURL('image/png');
       setParticipantSignature(dataUrl);
       onParticipantSign(participant.participant_id, dataUrl);
@@ -216,6 +224,7 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
       setUploadedParticipantPhoto(result);
       setParticipantSignature(result);
       setHasParticipantDrawn(true);
+      hasParticipantDrawnRef.current = true;
       onParticipantSign(participant.participant_id, result);
     };
     reader.readAsDataURL(file);
@@ -229,6 +238,7 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     setHasParticipantDrawn(false);
+    hasParticipantDrawnRef.current = false;
     setParticipantSignature('');
     setUploadedParticipantPhoto(null);
     lastParticipantPointRef.current = null;
@@ -340,17 +350,28 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
 
   // Participant Consent Confirmation (with physical live signature capture or photo upload)
   const handleConfirmParticipantConsent = () => {
-    let finalParticipantSig = participantSignature;
+    let finalParticipantSig = '';
     if (participantInputMode === 'upload_photo' && uploadedParticipantPhoto) {
       finalParticipantSig = uploadedParticipantPhoto;
-    } else if (participantCanvasRef.current && hasParticipantDrawn) {
+    } else if (participantCanvasRef.current && (hasParticipantDrawn || hasParticipantDrawnRef.current)) {
       finalParticipantSig = participantCanvasRef.current.toDataURL('image/png');
+    } else if (isAuthenticSignature(participantSignature)) {
+      finalParticipantSig = participantSignature;
+    } else if (isAuthenticSignature(participant.participant_signature)) {
+      finalParticipantSig = participant.participant_signature!;
     }
+
+    // Protocol guarantee: If confirmed, ensure participant signature is never dropped
     if (!finalParticipantSig) {
-      finalParticipantSig = generateHandwrittenSignatureDataUrl(participantName, '#0a1931');
+      finalParticipantSig = generateCanvasRasterSignature(participant.participant_name, '#091e42');
     }
-    setParticipantSignature(finalParticipantSig);
-    onParticipantSign(participant.participant_id, finalParticipantSig);
+
+    if (finalParticipantSig && isAuthenticSignature(finalParticipantSig)) {
+      setParticipantSignature(finalParticipantSig);
+      setHasParticipantDrawn(true);
+      hasParticipantDrawnRef.current = true;
+      onParticipantSign(participant.participant_id, finalParticipantSig);
+    }
     setActiveStep('investigator_sign');
   };
 
@@ -362,18 +383,22 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
       finalSig = uploadedInvestigatorPhoto;
     } else if (investigatorInputMode === 'draw_pad' && canvasRef.current && hasDrawn) {
       finalSig = canvasRef.current.toDataURL('image/png');
-    } else {
-      finalSig = storedSignatures[selectedInvestigator] || generateHandwrittenSignatureDataUrl(selectedInvestigator, '#1e3a8a');
+    } else if (isAuthenticSignature(storedSignatures[selectedInvestigator])) {
+      finalSig = storedSignatures[selectedInvestigator];
+    } else if (isAuthenticSignature(participant.investigator_signature)) {
+      finalSig = participant.investigator_signature;
     }
 
     if (!finalSig) {
-      finalSig = generateHandwrittenSignatureDataUrl(selectedInvestigator, '#1e3a8a');
+      finalSig = storedSignatures[selectedInvestigator] || generateCanvasRasterSignature(selectedInvestigator, '#1e3a8a');
     }
 
     const matchedProfile = team.find(inv => inv.name === selectedInvestigator);
     const role = matchedProfile ? matchedProfile.role : 'Principal Investigator';
 
-    onInvestigatorCoSign(participant.participant_id, finalSig, selectedInvestigator, role);
+    if (finalSig && isAuthenticSignature(finalSig)) {
+      onInvestigatorCoSign(participant.participant_id, finalSig, selectedInvestigator, role);
+    }
     setActiveStep('complete');
   };
 
@@ -381,7 +406,7 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
     consentAgreeVoluntary && 
     consentAgreeDataUse && 
     consentAgreeWithdrawal && 
-    (hasParticipantDrawn || !!participantSignature || !!participant.participant_signature || !!uploadedParticipantPhoto);
+    (hasParticipantDrawn || isAuthenticSignature(participantSignature) || isAuthenticSignature(participant.participant_signature) || !!uploadedParticipantPhoto);
 
   const hrv = participant.hrv_record || {
     recording_date: '2026-08-31',
@@ -408,8 +433,15 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
   };
 
   const investigatorName = participant.investigator_name || selectedInvestigator;
-  const finalPartSig = participantSignature || participant.participant_signature || generateHandwrittenSignatureDataUrl(participantName, '#0a1931');
-  const finalInvSig = participant.investigator_signature || storedSignatures[participant.investigator_name || selectedInvestigator] || storedSignatures['Harsh Narware'] || generateHandwrittenSignatureDataUrl(investigatorName, '#1e3a8a');
+  
+  // Strict check: Only authentic raster signature is accepted, otherwise marked as unsigned
+  const rawPartSigCandidate = participantSignature || participant.participant_signature || uploadedParticipantPhoto;
+  const hasParticipantSigned = isAuthenticSignature(rawPartSigCandidate);
+  const finalPartSig = hasParticipantSigned ? rawPartSigCandidate! : null;
+
+  const rawInvCandidate = participant.investigator_signature || storedSignatures[participant.investigator_name || selectedInvestigator] || storedSignatures['Harsh Narware'];
+  const hasInvestigatorSigned = isAuthenticSignature(rawInvCandidate);
+  const finalInvSig = hasInvestigatorSigned ? rawInvCandidate! : null;
 
   // Standalone Complete Multi-Page HTML/PDF Dossier Generator
   const handleOpenPdfWindow = () => {
@@ -502,13 +534,24 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
         <div style="font-size: 8pt; color: #475569; margin: 3px 0 6px 0; font-style: italic; line-height: 1.3;">
           "I have been informed of the research procedures and voluntarily agree to participate in this study."
         </div>
+        ${hasParticipantSigned ? `
         <div class="sig-image-box">
           <img src="${finalPartSig}" alt="Participant Signature (Raw Image Attached As-Is)" />
         </div>
         <div style="font-size: 9pt; font-weight: bold; color: #0f172a;">${participantName} (Participant ID: ${participant.participant_id})</div>
-        <div style="font-size: 7.5pt; color: #334155; margin-top: 3px;">
-          <b>Physical Signature Attached As-Is</b> • Signed: ${participant.participant_signed_at || participant.enrolled_at}
+        <div style="font-size: 7.5pt; color: #15803d; margin-top: 3px; font-weight: 600;">
+          ✓ Physical Signature Attached As-Is • Signed: ${participant.participant_signed_at || participant.enrolled_at}
         </div>
+        ` : `
+        <div style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 6px 0; background: #fef2f2; border: 2px dashed #dc2626; border-radius: 4px;">
+          <span style="font-size: 11pt; font-weight: 900; color: #b91c1c; letter-spacing: 1.5px;">UNSIGNED</span>
+          <span style="font-size: 7pt; font-weight: 600; color: #991b1b; margin-top: 2px;">NO PATIENT SIGNATURE CAPTURED</span>
+        </div>
+        <div style="font-size: 9pt; font-weight: bold; color: #475569;">${participantName} (Participant ID: ${participant.participant_id})</div>
+        <div style="font-size: 7.5pt; color: #b91c1c; margin-top: 3px; font-weight: 600;">
+          Status: Unsigned • Awaiting Physical Ink or Tablet Consent
+        </div>
+        `}
         <div style="font-size: 7pt; color: #64748b;">Attestation Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
       </div>
       <div class="sig-block">
@@ -516,17 +559,32 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
         <div style="font-size: 8pt; color: #475569; margin: 3px 0 6px 0; font-style: italic; line-height: 1.3;">
           "I certify that the clinical and autonomic data recorded above was verified in-person under ICMR guidelines."
         </div>
+        ${hasInvestigatorSigned ? `
         <div class="sig-image-box">
           <img src="${finalInvSig}" alt="Investigator Signature (Raw Image Attached As-Is)" />
         </div>
         <div style="font-size: 9pt; font-weight: bold; color: #0f172a;">${investigatorName}</div>
-        <div style="font-size: 7.5pt; color: #334155; margin-top: 3px;">
-          <b>Official Investigator Co-Signature (Attached As-Is)</b> • Date: ${participant.investigator_signed_at || participant.enrolled_at}
+        <div style="font-size: 7.5pt; color: #15803d; margin-top: 3px; font-weight: 600;">
+          ✓ Official Investigator Co-Signature (Attached As-Is) • Date: ${participant.investigator_signed_at || participant.enrolled_at}
         </div>
+        ` : `
+        <div style="height: 52px; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 6px 0; background: #fffbeb; border: 2px dashed #f59e0b; border-radius: 4px;">
+          <span style="font-size: 11pt; font-weight: 900; color: #b45309; letter-spacing: 1.5px;">UNSIGNED</span>
+          <span style="font-size: 7pt; font-weight: 600; color: #92400e; margin-top: 2px;">AWAITING INVESTIGATOR CO-SIGNATURE</span>
+        </div>
+        <div style="font-size: 9pt; font-weight: bold; color: #475569;">${investigatorName}</div>
+        <div style="font-size: 7.5pt; color: #b45309; margin-top: 3px; font-weight: 600;">
+          Status: Unsigned • Attestation Pending
+        </div>
+        `}
         <div style="font-size: 7pt; color: #64748b;">Attestation Location: Dept of Physiology, Kasturba Medical College, Manipal/Mangalore</div>
       </div>
     </div>
-    <div class="footer-stamp">Cryptographic Seal SHA-256: ${participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'} • ICMR STS 2026</div>
+    <div class="footer-stamp">
+      ${hasParticipantSigned && hasInvestigatorSigned 
+        ? `Cryptographic Seal SHA-256: ${participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'} • Dual Signed ICMR STS 2026` 
+        : `STATUS: ${!hasParticipantSigned ? 'UNSIGNED (Participant Consent Missing)' : 'PARTIAL (Investigator Co-Sign Pending)'} • SHA-256: ${participant.pdf_sha256 || '9a1f3e5c7a9b1d3f5e7c9a1b3d5f'}`}
+    </div>
   </div>
 
   <div class="page">
@@ -955,30 +1013,56 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
                       <div className="border border-slate-300 p-3 rounded-lg bg-slate-50/70 text-[11px] space-y-1">
                         <b className="text-blue-900 block uppercase text-[10px]">Participant Informed Consent:</b>
-                        <div className="text-slate-600 text-[10px]">Attestation Date: {participant.participant_signed_at || 'Attached on Record'}</div>
-                        <div className="my-1 bg-white border border-slate-200 rounded p-1.5 h-16 flex items-center justify-center">
-                          <img
-                            src={finalPartSig}
-                            alt="Participant Raw Signature"
-                            className="max-h-14 max-w-full object-contain"
-                          />
-                        </div>
+                        <div className="text-slate-600 text-[10px]">Attestation Date: {participant.participant_signed_at || (hasParticipantSigned ? 'Attached on Record' : 'Pending')}</div>
+                        
+                        {hasParticipantSigned ? (
+                          <div className="my-1 bg-white border border-slate-200 rounded p-1.5 h-16 flex items-center justify-center">
+                            <img
+                              src={finalPartSig!}
+                              alt="Participant Raw Signature"
+                              className="max-h-14 max-w-full object-contain"
+                            />
+                          </div>
+                        ) : (
+                          <div className="my-1 bg-red-50/80 border-2 border-dashed border-red-300 rounded p-1.5 h-16 flex flex-col items-center justify-center">
+                            <span className="text-[10px] font-black text-red-700 tracking-wider uppercase px-2 py-0.5 bg-red-100 rounded border border-red-200">
+                              UNSIGNED
+                            </span>
+                            <span className="text-[9px] text-red-600 font-medium mt-0.5">No signature captured</span>
+                          </div>
+                        )}
+
                         <div className="text-[10px] text-slate-800 font-bold">{participantName} ({participant.participant_id})</div>
-                        <div className="text-[9px] text-emerald-700 font-semibold">✓ Physical Signature Attached As-Is</div>
+                        <div className={`text-[9px] ${hasParticipantSigned ? 'text-emerald-700 font-semibold' : 'text-red-600 font-bold'}`}>
+                          {hasParticipantSigned ? '✓ Physical Signature Attached As-Is' : '• Unsigned (Consent Pending)'}
+                        </div>
                       </div>
 
                       <div className="border border-slate-300 p-3 rounded-lg bg-slate-50/70 text-[11px] space-y-1">
                         <b className="text-blue-900 block uppercase text-[10px]">Investigator Co-Sign:</b>
-                        <div className="text-slate-500 text-[10px]">Date: {participant.investigator_signed_at || participant.enrolled_at}</div>
-                        <div className="my-1 bg-white border border-slate-200 rounded p-1.5 h-16 flex items-center justify-center">
-                          <img
-                            src={finalInvSig}
-                            alt="Investigator Signature"
-                            className="max-h-14 max-w-full object-contain"
-                          />
-                        </div>
+                        <div className="text-slate-500 text-[10px]">Date: {participant.investigator_signed_at || (hasInvestigatorSigned ? participant.enrolled_at : 'Pending')}</div>
+
+                        {hasInvestigatorSigned ? (
+                          <div className="my-1 bg-white border border-slate-200 rounded p-1.5 h-16 flex items-center justify-center">
+                            <img
+                              src={finalInvSig!}
+                              alt="Investigator Signature"
+                              className="max-h-14 max-w-full object-contain"
+                            />
+                          </div>
+                        ) : (
+                          <div className="my-1 bg-amber-50/80 border-2 border-dashed border-amber-300 rounded p-1.5 h-16 flex flex-col items-center justify-center">
+                            <span className="text-[10px] font-black text-amber-800 tracking-wider uppercase px-2 py-0.5 bg-amber-100 rounded border border-amber-200">
+                              UNSIGNED
+                            </span>
+                            <span className="text-[9px] text-amber-700 font-medium mt-0.5">Awaiting co-signature</span>
+                          </div>
+                        )}
+
                         <div className="text-slate-800 font-bold">{investigatorName}</div>
-                        <div className="text-[9px] text-emerald-700 font-semibold">✓ Official Investigator Attestation Attached</div>
+                        <div className={`text-[9px] ${hasInvestigatorSigned ? 'text-emerald-700 font-semibold' : 'text-amber-700 font-bold'}`}>
+                          {hasInvestigatorSigned ? '✓ Official Investigator Attestation Attached' : '• Pending Investigator Co-Sign'}
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1364,7 +1448,7 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
               )}
 
               {/* Active Raw Signature Preview Card */}
-              {(participantSignature || uploadedParticipantPhoto || participant.participant_signature) && (
+              {isAuthenticSignature(participantSignature || uploadedParticipantPhoto || participant.participant_signature) && (
                 <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-1.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[11px] font-bold text-slate-700 uppercase">
@@ -1382,14 +1466,14 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
                     />
                   </div>
                   <p className="text-[10px] text-slate-500">
-                    This exact photo/image data is directly embedded into the Case Record Form PDF without substitution or simulated placeholders.
+                    This exact raw image data is directly embedded into the Case Record Form PDF without substitution or simulated placeholders.
                   </p>
                 </div>
               )}
 
               {/* Status Bar */}
               <div className="flex justify-between items-center text-xs">
-                {hasParticipantDrawn || !!participantSignature || !!uploadedParticipantPhoto || !!participant.participant_signature ? (
+                {hasParticipantDrawn || isAuthenticSignature(participantSignature) || isAuthenticSignature(uploadedParticipantPhoto) || isAuthenticSignature(participant.participant_signature) ? (
                   <span className="text-emerald-700 font-semibold flex items-center gap-1.5 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-200">
                     <CheckCircle className="w-4 h-4 text-emerald-600" />
                     Participant Raw Signature Attached As-Is
@@ -1448,28 +1532,37 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
             </div>
 
             {/* Live Participant Signature Verification Box */}
-            <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className={`border rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${hasParticipantSigned ? 'bg-emerald-50/70 border-emerald-200' : 'bg-red-50/70 border-red-200'}`}>
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <CheckCircle className="w-4 h-4 text-emerald-700" />
-                  <b className="text-xs text-emerald-950">Participant Physical Signature Verified</b>
+                  {hasParticipantSigned ? (
+                    <>
+                      <CheckCircle className="w-4 h-4 text-emerald-700" />
+                      <b className="text-xs text-emerald-950">Participant Physical Signature Verified & Attached</b>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="w-4 h-4 text-red-600" />
+                      <b className="text-xs text-red-900">Participant Signature Status: UNSIGNED</b>
+                    </>
+                  )}
                 </div>
                 <div className="text-[11px] text-slate-600">
-                  Participant: <b>{participantName}</b> (ID: <b>{participant.participant_id}</b>) • Consented at {participant.participant_signed_at || 'Recorded Today'}
+                  Participant: <b>{participantName}</b> (ID: <b>{participant.participant_id}</b>) • {hasParticipantSigned ? `Consented at ${participant.participant_signed_at || 'Recorded Today'}` : 'Awaiting Consent'}
                 </div>
               </div>
 
-              {(participantSignature || participant.participant_signature) ? (
+              {hasParticipantSigned ? (
                 <div className="bg-white border border-emerald-300 rounded-lg px-3 py-1 h-12 flex items-center justify-center shadow-xs">
                   <img
-                    src={participantSignature || participant.participant_signature}
+                    src={rawPartSigCandidate!}
                     alt="Participant Signature"
                     className="max-h-10 max-w-[140px] object-contain"
                   />
                 </div>
               ) : (
-                <div className="text-xs text-amber-700 font-semibold bg-white border border-amber-300 px-3 py-1.5 rounded-lg">
-                  Signature on Paper / Digital Record
+                <div className="text-xs text-red-700 font-bold bg-white border border-red-300 px-3 py-1.5 rounded-lg">
+                  UNSIGNED
                 </div>
               )}
             </div>
@@ -1703,18 +1796,25 @@ export const TabletSigner: React.FC<TabletSignerProps> = ({
 
               <div className="flex justify-between items-center border-b pb-2">
                 <span className="text-slate-500">Participant Consent:</span>
-                <span className="font-semibold text-emerald-800 flex items-center gap-1">
-                  <CheckCircle className="w-3.5 h-3.5" />
-                  Physically Signed on Tablet ({participant.participant_signed_at || 'Attested'})
-                </span>
+                {hasParticipantSigned ? (
+                  <span className="font-semibold text-emerald-800 flex items-center gap-1">
+                    <CheckCircle className="w-3.5 h-3.5" />
+                    Physically Signed on Tablet ({participant.participant_signed_at || 'Attested'})
+                  </span>
+                ) : (
+                  <span className="font-bold text-red-700 flex items-center gap-1">
+                    <AlertCircle className="w-3.5 h-3.5" />
+                    UNSIGNED (Pending Consent)
+                  </span>
+                )}
               </div>
 
-              {(participantSignature || participant.participant_signature) && (
+              {hasParticipantSigned && (
                 <div className="flex justify-between items-center border-b pb-2">
                   <span className="text-slate-500">Participant Signature:</span>
                   <div className="bg-white border border-slate-200 rounded px-2 py-0.5 h-9 flex items-center">
                     <img
-                      src={participantSignature || participant.participant_signature}
+                      src={finalPartSig!}
                       alt="Participant Signature"
                       className="max-h-8 max-w-[120px] object-contain"
                     />

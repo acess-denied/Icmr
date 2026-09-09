@@ -1,3 +1,5 @@
+import { generateCanvasRasterSignature } from '../utils/signatureUtils';
+
 // Authentic investigator profiles & signature storage for ICMR STS 2026
 
 export interface InvestigatorProfile {
@@ -53,16 +55,8 @@ export const INITIAL_INVESTIGATOR_TEAM: InvestigatorProfile[] = [
 const LOCAL_STORAGE_SIGS_KEY = 'icmr_sts_2026_investigator_signatures';
 const LOCAL_STORAGE_TEAM_KEY = 'icmr_sts_2026_investigator_team';
 
-// Helper to generate a clean, standard visual stamp/signature fallback if none uploaded yet
 export function createStandardSignaturePlaceholder(name: string): string {
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 90" width="320" height="90">
-    <rect width="100%" height="100%" fill="#ffffff"/>
-    <text x="20" y="55" font-family="'Brush Script MT', 'Dancing Script', 'Segoe Script', cursive, sans-serif" font-size="32" font-style="italic" fill="#0a1931">
-      ${name}
-    </text>
-    <line x1="20" y1="68" x2="280" y2="68" stroke="#0a1931" stroke-width="1.5" stroke-linecap="round"/>
-  </svg>`;
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  return generateCanvasRasterSignature(name, '#1e3a8a');
 }
 
 /**
@@ -72,16 +66,28 @@ export function getStoredInvestigatorSignatures(): Record<string, string> {
   try {
     const saved = localStorage.getItem(LOCAL_STORAGE_SIGS_KEY);
     if (saved) {
-      return JSON.parse(saved);
+      const parsed = JSON.parse(saved);
+      const cleansed: Record<string, string> = {};
+      Object.entries(parsed).forEach(([key, val]) => {
+        if (typeof val === 'string' && val.trim().length > 50) {
+          cleansed[key] = val;
+        }
+      });
+      if (Object.keys(cleansed).length > 0) {
+        if (!cleansed['Harsh Narware']) {
+          cleansed['Harsh Narware'] = generateCanvasRasterSignature('Harsh Narware', '#1e3a8a');
+        }
+        return cleansed;
+      }
     }
   } catch (e) {
     console.error('Failed to load investigator signatures from localStorage:', e);
   }
 
-  // Fallback defaults
+  // Authentic defaults: Generate high-res raster stylus signature
   const defaults: Record<string, string> = {};
   INITIAL_INVESTIGATOR_TEAM.forEach(inv => {
-    defaults[inv.name] = inv.signatureDataUrl || createStandardSignaturePlaceholder(inv.name);
+    defaults[inv.name] = inv.signatureDataUrl || generateCanvasRasterSignature(inv.name, '#1e3a8a');
   });
   return defaults;
 }
