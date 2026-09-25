@@ -7,22 +7,23 @@ echo    ICMR STS 2026 - RESEARCH STUDY & CLINICAL DOSSIER PLATFORM SETUP (WINDOW
 echo    Association Between Meal Timing, Chronotype, and Heart Rate Variability
 echo ==============================================================================
 echo.
-echo Checking Windows system prerequisites...
+echo Checking Windows system prerequisites and package managers...
 
 where node >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] Node.js is not installed or not found in system PATH.
-    echo Please download and install Node.js 18+ from: https://nodejs.org/
-    echo.
+    echo [NOTICE] Node.js is not found in PATH.
+    echo Launching PowerShell to automatically install Node.js via winget / official installer...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
     pause
-    exit /b 1
+    exit /b %errorlevel%
 )
 
 where npm >nul 2>nul
 if %errorlevel% neq 0 (
-    echo [ERROR] npm is not found. Please ensure Node.js is properly installed.
+    echo [NOTICE] npm is not found. Launching PowerShell installer...
+    powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
     pause
-    exit /b 1
+    exit /b %errorlevel%
 )
 
 for /f "tokens=*" %%i in ('node -v') do set NODE_VER=%%i
@@ -33,20 +34,23 @@ echo.
 echo ==============================================================================
 echo  Select Setup Operation:
 echo ==============================================================================
-echo   [1] Install Dependencies and Launch Local Medical Tablet Portal (Port 3000)
-echo   [2] Build and Run Production Preview (npm run build ^& npm run preview)
-echo   [3] Full Production Cloudflare Deployment (Workers + D1 + R2 + Pages)
-echo   [4] Run Advanced PowerShell Deployment Engine (setup.ps1)
-echo   [5] Exit
+echo   [1] Full Cloudflare Production Deployment (Workers + D1 + R2 + Pages)
+echo   [2] Install Dependencies and Launch Local Medical Tablet Portal (Port 3000)
+echo   [3] Vercel 1-Click Frontend Deployment
+echo   [4] Railway / Docker Container Monolith Deployment
+echo   [5] Build Production React Bundle (npm run build)
+echo   [6] Exit
+echo ==============================================================================
 echo.
-set /p CHOICE="Enter choice [1-5, Default: 1]: "
+set /p CHOICE="Enter choice [1-6, Default: 1]: "
 if "%CHOICE%"=="" set CHOICE=1
 
-if "%CHOICE%"=="1" goto LOCAL_DEV
-if "%CHOICE%"=="2" goto BUILD_PREVIEW
-if "%CHOICE%"=="3" goto DEPLOY_CLOUDFLARE
+if "%CHOICE%"=="1" goto RUN_PS1
+if "%CHOICE%"=="2" goto LOCAL_DEV
+if "%CHOICE%"=="3" goto RUN_PS1
 if "%CHOICE%"=="4" goto RUN_PS1
-if "%CHOICE%"=="5" goto EXIT_SCRIPT
+if "%CHOICE%"=="5" goto BUILD_PREVIEW
+if "%CHOICE%"=="6" goto EXIT_SCRIPT
 
 :LOCAL_DEV
 echo.
@@ -81,20 +85,9 @@ call npm run preview
 pause
 exit /b 0
 
-:DEPLOY_CLOUDFLARE
-echo.
-echo Launching full automated Cloudflare deployment via PowerShell engine...
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
-if %errorlevel% neq 0 (
-    echo.
-    echo [NOTICE] PowerShell deployment completed or paused.
-)
-pause
-exit /b 0
-
 :RUN_PS1
 echo.
-echo Launching setup.ps1 in PowerShell...
+echo Launching setup.ps1 in PowerShell with elevated execution policy...
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1"
 pause
 exit /b 0
